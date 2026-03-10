@@ -1,0 +1,71 @@
+{
+  "default": "software",
+  "pipelines": [
+    {
+      "id": "software",
+      "name": "Software Factory",
+      "description": "Full-stack web app development: spec → design → build → QA",
+      "entryLabel": "station:intake",
+      "doneLabel": "station:done",
+      "detectFn": "default",
+      "stages": [
+        {
+          "stationId": "spec",
+          "label": "station:intake",
+          "nextLabel": "station:spec"
+        },
+        {
+          "stationId": "design",
+          "label": "station:spec",
+          "nextLabel": "station:design"
+        },
+        {
+          "stationId": "build",
+          "label": "station:design",
+          "nextLabel": "station:build"
+        },
+        {
+          "stationId": "qa",
+          "label": "station:build",
+          "nextLabel": "station:qa"
+        },
+        {
+          "stationId": "bugfix",
+          "label": "station:bugfix",
+          "nextLabel": "station:build"
+        }
+      ]
+    },
+    {
+      "id": "content",
+      "name": "Content Pipeline",
+      "description": "Article/blog pipeline: research → draft → review → publish",
+      "entryLabel": "pipeline:content",
+      "doneLabel": "station:done",
+      "detectFn": "label",
+      "detectValue": "pipeline:content",
+      "stages": [
+        {
+          "stationId": "research",
+          "label": "pipeline:content",
+          "nextLabel": "station:draft"
+        },
+        {
+          "stationId": "draft",
+          "label": "station:draft",
+          "nextLabel": "station:review"
+        },
+        {
+          "stationId": "review",
+          "label": "station:review",
+          "nextLabel": "station:publish"
+        },
+        {
+          "stationId": "publish",
+          "label": "station:publish",
+          "nextLabel": null
+        }
+      ]
+    }
+  ]
+}

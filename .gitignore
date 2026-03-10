@@ -1,0 +1,22 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Factory config with secrets
+factory/config.json
+
+# Crash backoff state (auto-generated)
+factory/.crash-backoff*.json
+factory/.agent-state*.json
+
+# Logs
+logs/
+*.log
+
+# Node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db

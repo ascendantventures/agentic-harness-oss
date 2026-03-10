@@ -1,0 +1,40 @@
+{
+  "pipelinesFile": "./pipelines.json",
+  "stations": {
+    "spec":    { "model": "claude-sonnet-4-6", "concurrency": 3 },
+    "design":  { "model": "claude-opus-4-5",   "concurrency": 2 },
+    "build":   { "model": "claude-sonnet-4-6", "concurrency": 1 },
+    "qa":      { "model": "claude-sonnet-4-6", "concurrency": 1 },
+    "bugfix":  { "model": "claude-sonnet-4-6", "concurrency": 1 }
+  },
+  "github": {
+    "repo": "your-org/your-repo"
+  },
+  "concurrency": {
+    "maxTasksPerRun": 2
+  },
+  "templates": {
+    "owner": "your-org",
+    "internalRepo": "your-org/your-app",
+    "entries": {
+      "nextjs-supabase-vercel": {
+        "repo": "your-org/template-nextjs-supabase-vercel",
+        "deployTarget": "vercel",
+        "matchStacks": ["next.js", "nextjs", "react"],
+        "matchTypes": ["landing_page", "saas", "web_app", "dashboard"]
+      },
+      "expo-supabase-eas": {
+        "repo": "your-org/template-expo-supabase-eas",
+        "deployTarget": "eas",
+        "matchStacks": ["expo", "react native", "mobile"],
+        "matchTypes": ["mobile_app", "mobile"]
+      },
+      "fastapi-supabase-railway": {
+        "repo": "your-org/template-fastapi-supabase-railway",
+        "deployTarget": "railway",
+        "matchStacks": ["fastapi", "python", "django"],
+        "matchTypes": ["api", "backend"]
+      }
+    }
+  }
+}

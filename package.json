@@ -1,0 +1,40 @@
+{
+  "name": "agentic-harness",
+  "version": "0.2.0",
+  "description": "Autonomous multi-station agent pipeline. SPEC → DESIGN → BUILD → QA → BUGFIX → DONE.",
+  "type": "module",
+  "bin": {
+    "agentic-harness": "./factory/src/loop.ts"
+  },
+  "scripts": {
+    "start": "tsx factory/src/loop.ts",
+    "dev": "tsx watch factory/src/loop.ts",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/**/*.test.ts",
+    "validate": "bash scripts/validate-stations.sh",
+    "setup": "bash scripts/install.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.15",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "keywords": [
+    "autonomous-agents",
+    "agent-pipeline",
+    "claude-code",
+    "github-issues",
+    "ai-devops",
+    "claude"
+  ],
+  "homepage": "https://ascendantventures.net",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ascendant-ventures/agentic-harness"
+  },
+  "license": "MIT"
+}
