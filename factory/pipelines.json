@@ -33,6 +33,11 @@
           "stationId": "bugfix",
           "label": "station:bugfix",
           "nextLabel": "station:build"
+        },
+        {
+          "stationId": "qa",
+          "label": "station:qa",
+          "nextLabel": "station:done"
         }
       ]
     },
