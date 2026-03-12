@@ -13,6 +13,7 @@ import type { Issue, AgentTask, TemplateConfig } from '../../types/index.js';
 import { BaseStation, type FactoryContext, type ShouldProcessResult } from '../base.js';
 import { hasDesignComment, checkDesignQuality, extractBuildRepo, extractSubmissionId } from '../../github/issues.js';
 import { isSpecApproved, getSubmissionForIssue } from '../../notify/supabase.js';
+import { guardAutoAdvance } from '../../pipeline/reconciler.js';
 
 // ─── Default template registry (overridable via config.templates) ────────────
 
@@ -126,11 +127,17 @@ export class BuildStation extends BaseStation {
       }
     }
 
-    // 4. Design comment check
+    // 4. Design comment check — if missing, revert label so Design agent can run
     const designDone = hasDesignComment(issue.number, ctx.env.repo);
     if (!designDone) {
       this.designAction = { action: 'respawn-design', issueNumber: issue.number };
-      return { process: false, reason: 'DESIGN.md not yet posted — waiting for design agent' };
+      // Auto-revert: issue reached station:design without a DESIGN.md (e.g., manual label flip
+      // or approval flow that skipped the Design agent). Move back to station:spec.
+      guardAutoAdvance(
+        issue.number, ctx.env.repo, 'station:design', 'station:spec', ctx.log,
+        'DESIGN.md missing — reverting to station:spec for Design agent',
+      );
+      return { process: false, reason: 'DESIGN.md not yet posted — reverted to station:spec for Design agent' };
     }
 
     // 5. Design quality gate
