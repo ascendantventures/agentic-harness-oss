@@ -106,7 +106,7 @@ try {
   config = {
     stations: {},
     github: { repo: REPO },
-    concurrency: { maxTasksPerRun: 2 },
+    concurrency: { maxTasksPerRun: 3 },
   };
 }
 
