@@ -140,7 +140,7 @@ export class BuildStation extends BaseStation {
       return { process: false, reason: 'DESIGN.md not yet posted — reverted to station:spec for Design agent' };
     }
 
-    // 5. Design quality gate
+    // 5. Design quality gate — if incomplete, push back to station:spec for re-design
     const qualityCheck = checkDesignQuality(issue.number, ctx.env.repo, ctx.log);
     if (!qualityCheck.ok) {
       this.designAction = {
@@ -148,9 +148,14 @@ export class BuildStation extends BaseStation {
         issueNumber: issue.number,
         reason: qualityCheck.reason,
       };
+      // Self-heal: push back to station:spec so Design agent re-runs with full output
+      guardAutoAdvance(
+        issue.number, ctx.env.repo, 'station:design', 'station:spec', ctx.log,
+        `Design quality gate failed — reverting to station:spec (${qualityCheck.reason})`,
+      );
       return {
         process: false,
-        reason: `Design quality gate failed: ${qualityCheck.reason}`,
+        reason: `Design quality gate failed — reverted to station:spec: ${qualityCheck.reason}`,
       };
     }
 
