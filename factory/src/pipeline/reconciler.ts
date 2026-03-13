@@ -16,7 +16,7 @@ const STAGE_ARTIFACTS: Record<string, RegExp> = {
   spec: /## (SPEC|Specification|Requirements)/i,
   design: /## (DESIGN|Design Specification|DESIGN\.md)/i,
   build: /## BUILD COMPLETE/i,
-  qa: /## QA Report/i,
+  qa: /## QA Report[\s\S]{0,200}(✅ PASS|QA PASS)/i,  // Only match QA PASS — FAIL must not advance
   bugfix: /## (BUGFIX|Bug Fix) (COMPLETE|Report)/i,
 };
 

@@ -17,6 +17,7 @@
 import { execSync } from 'child_process';
 import type { Issue, AgentTask } from '../../types/index.js';
 import { BaseStation, type FactoryContext, type ShouldProcessResult } from '../base.js';
+import { flipLabel, guardAutoAdvance } from '../../pipeline/reconciler.js';
 
 export class UATStation extends BaseStation {
   readonly id = 'uat';
@@ -46,6 +47,17 @@ export class UATStation extends BaseStation {
       );
 
       if (!hasQAPass) {
+        // Check if there's a bugfix after the QA fail — if so, push back to station:build for re-QA
+        const hasBugfix = comments.some(
+          (c) => c.body?.includes('BUGFIX COMPLETE') || c.body?.includes('Bug Fix COMPLETE'),
+        );
+        const hasQAFail = comments.some(
+          (c) => c.body?.includes('QA Report') && (c.body?.includes('❌') || c.body?.includes('FAIL')),
+        );
+        if (hasBugfix && hasQAFail) {
+          flipLabel(issue.number, ctx.env.repo, 'station:qa', 'station:build', ctx.log, 'UAT: QA failed + bugfix done — returning to build for re-QA');
+          return { process: false, reason: 'No QA PASS — bugfix complete, pushed back to station:build for re-QA' };
+        }
         return { process: false, reason: 'No QA PASS found — UAT requires QA to pass first' };
       }
     } catch (e: any) {
@@ -67,7 +79,9 @@ export class UATStation extends BaseStation {
       );
 
       if (hasUATReport) {
-        return { process: false, reason: 'UAT report already exists' };
+        // Auto-advance: UAT already completed but label wasn't flipped
+        guardAutoAdvance(issue.number, ctx.env.repo, this.label, 'station:done', ctx.log, 'UAT report already exists');
+        return { process: false, reason: 'UAT report already exists — auto-advanced to station:done' };
       }
     } catch {
       // Proceed if we can't check
