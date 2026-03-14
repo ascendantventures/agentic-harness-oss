@@ -14,7 +14,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..');
 
 async function checkDependencies() {
-  const s = spinner();
+  let s = spinner();
   s.start('Checking dependencies (Node.js, claude, gh)...');
   
   try {
@@ -100,7 +100,10 @@ async function checkDependencies() {
       }
     }
 
+    s.stop(pc.green('✔ Base dependencies (Node.js, claude, gh) found.'));
+
     // Check gh CLI auth
+    s = spinner();
     s.start('Checking GitHub authentication...');
     let authSuccess = false;
     while (!authSuccess) {
@@ -125,12 +128,12 @@ async function checkDependencies() {
           throw new Error(`Authentication cancelled. You must run ${pc.cyan('gh auth login')} manually later.`);
         }
 
+        s = spinner();
         s.start('Authenticating GitHub CLI...');
         try {
           await execAsync(`echo "${ghToken}" | gh auth login --with-token`);
           authSuccess = true;
           s.stop(pc.green('✔ GitHub authenticated.'));
-          s.start('Re-checking GitHub dependencies...');
         } catch (e: any) {
           s.stop(pc.red('  Failed to authenticate with that token. Please try again.'));
         }
