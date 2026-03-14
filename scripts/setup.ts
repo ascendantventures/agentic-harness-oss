@@ -28,8 +28,10 @@ async function main() {
     note('Previous configuration wiped safely.', '🧹 Factory Reset Triggered');
   }
 
+  let hasClaude = false;
   try {
-    await checkAllDependencies();
+    const deps = await checkAllDependencies();
+    hasClaude = deps.hasClaude;
   } catch (error: any) {
     cancel(error.message);
     process.exit(1);
@@ -100,7 +102,7 @@ async function main() {
 
   const sFiles = spinner();
   sFiles.start('Writing configuration files...');
-  await saveConfiguration(repo as string, apiKey as string);
+  await saveConfiguration(repo as string, apiKey as string, hasClaude);
   sFiles.stop(pc.green('✔ Configuration files written.'));
 
   if (setupLabels) {

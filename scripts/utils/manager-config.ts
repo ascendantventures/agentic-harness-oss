@@ -43,13 +43,13 @@ export async function getCurrentSettings(): Promise<{ repo: string; key: string 
   return { repo: currentRepo, key: currentKey };
 }
 
-export async function saveConfiguration(repo: string, apiKey: string): Promise<void> {
+export async function saveConfiguration(repo: string, apiKey: string, hasClaude = false): Promise<void> {
   const configPath = path.join(REPO_ROOT, 'factory', 'config.json');
   const envPath = path.join(REPO_ROOT, '.env');
 
   // Update factory/config.json using JSON parsing
   try {
-    let configContent = await fs.readFile(configPath, 'utf8');
+    const configContent = await fs.readFile(configPath, 'utf8');
     const config = JSON.parse(configContent);
     if (!config.github) config.github = {};
     config.github.repo = repo;
@@ -78,6 +78,15 @@ export async function saveConfiguration(repo: string, apiKey: string): Promise<v
     envContent = envContent.replace(/^#?\s*CLAUDE_CODE_OAUTH_TOKEN=.*/m, `CLAUDE_CODE_OAUTH_TOKEN=${apiKey}`);
   } else {
     envContent = envContent.replace(/^#?\s*ANTHROPIC_API_KEY=.*/m, `ANTHROPIC_API_KEY=${apiKey}`);
+  }
+
+  // Handle FACTORY_USE_CLAUDE
+  if (hasClaude) {
+    if (envContent.match(/^#?\s*FACTORY_USE_CLAUDE=.*/m)) {
+      envContent = envContent.replace(/^#?\s*FACTORY_USE_CLAUDE=.*/m, 'FACTORY_USE_CLAUDE=1');
+    } else {
+      envContent += '\nFACTORY_USE_CLAUDE=1';
+    }
   }
 
   await fs.writeFile(envPath, envContent, 'utf8');

@@ -13,10 +13,10 @@ export async function checkNodeVersion(): Promise<void> {
   }
 }
 
-export async function ensureClaudeCli(): Promise<void> {
+export async function ensureClaudeCli(): Promise<boolean> {
   try {
     await execAsync('claude --version');
-    return;
+    return true;
   } catch {
     const shouldInstall = await confirm({
       message: 'claude CLI is required but not installed. Do you want to install it now via npm?',
@@ -24,7 +24,7 @@ export async function ensureClaudeCli(): Promise<void> {
     });
 
     if (!shouldInstall || isCancel(shouldInstall)) {
-      throw new Error(`claude CLI not found.\nInstall via: ${pc.cyan('npm install -g @anthropic-ai/claude-code')}`);
+      return false; // Not critical if they want to use something else, but we should know
     }
 
     const s = spinner();
@@ -32,9 +32,10 @@ export async function ensureClaudeCli(): Promise<void> {
     try {
       await execAsync('npm install -g @anthropic-ai/claude-code');
       s.stop(pc.green('✔ claude CLI installed successfully!'));
+      return true;
     } catch (installErr: any) {
       s.stop(pc.red('✖ Installation failed.'));
-      throw new Error(`Failed to install claude CLI automatically. You may need sudo, or check your npm permissions.\nPlease install manually: ${pc.cyan('npm install -g @anthropic-ai/claude-code')}`);
+      return false;
     }
   }
 }
@@ -122,16 +123,19 @@ export async function authenticateGitHub(): Promise<void> {
   }
 }
 
-export async function checkAllDependencies(): Promise<void> {
+export async function checkAllDependencies(): Promise<{ hasClaude: boolean }> {
   const s = spinner();
   s.start('Checking basic environment (Node.js)...');
   await checkNodeVersion();
   s.stop(pc.green('✔ Node.js version is compatible.'));
   
-  await ensureClaudeCli();
+  const hasClaude = await ensureClaudeCli();
   await ensureGitHubCli();
 
   s.start('Checking GitHub authentication...');
   s.stop('Checking GitHub authentication...'); // Need to stop before prompt in authenticateGitHub might happen
   await authenticateGitHub();
+
+  return { hasClaude };
 }
+
