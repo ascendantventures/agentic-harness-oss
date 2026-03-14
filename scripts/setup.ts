@@ -13,8 +13,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..');
 
+const s = spinner();
+
 async function checkDependencies() {
-  const s = spinner();
   s.start('Checking dependencies (Node.js, claude, gh)...');
   
   try {
@@ -69,34 +70,30 @@ async function checkDependencies() {
       });
 
       if (installGh && !isCancel(installGh)) {
-        s.stop(pc.cyan(`Installing GitHub CLI for ${osName}... (You might be prompted for your password)`));
+        s.start(`Installing GitHub CLI for ${osName}...`);
         try {
           if (process.platform === 'darwin') {
-            execSync('HOMEBREW_NO_AUTO_UPDATE=1 brew install gh', { stdio: 'inherit' });
+            await execAsync('HOMEBREW_NO_AUTO_UPDATE=1 brew install gh');
           } else if (process.platform === 'win32') {
             try {
-               execSync('winget install --id GitHub.cli', { stdio: 'inherit' });
+               await execAsync('winget install --id GitHub.cli');
             } catch {
-               execSync('choco install gh -y', { stdio: 'inherit' });
+               await execAsync('choco install gh -y');
             }
           } else {
-            // For Linux: brew takes forever to update on Linux, so we prefer snap or apt.
-            try {
-              console.log(pc.dim('  > Trying snap (default for Ubuntu)...'));
-              execSync('sudo snap install gh', { stdio: 'inherit' });
-            } catch {
-              console.log(pc.dim('  > snap failed. Trying apt (Debian/Ubuntu)...'));
-              // Step by step so it doesn't hang in a massive pipe
-              execSync('type -p curl >/dev/null || (sudo apt update && sudo apt install curl -y)', { stdio: 'inherit' });
-              execSync('curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg', { stdio: 'inherit' });
-              execSync('sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg', { stdio: 'inherit' });
-              execSync('echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null', { stdio: 'inherit' });
-              execSync('sudo apt update && sudo apt install gh -y', { stdio: 'inherit' });
-            }
+            // For Linux, sudo prompts break the TUI. We must instruct the user.
+            s.stop(pc.yellow('  Auto-install on Linux requires sudo.'));
+            throw new Error(
+              `Please open a new terminal and install GitHub CLI manually:\n` +
+              `  ${pc.bold('Ubuntu/Debian:')} ${pc.cyan('sudo snap install gh')} OR ${pc.cyan('sudo apt install gh')}\n` +
+              `  ${pc.bold('Other:')} ${pc.cyan('https://cli.github.com')}\n\n` +
+              `After installing, re-run: ${pc.cyan('npm run setup:reset')}`
+            );
           }
           ghInstalled = true;
-          s.start('✔ GitHub CLI installed successfully! Resuming...');
+          s.stop(pc.green('✔ GitHub CLI installed successfully!'));
         } catch (e: any) {
+          if (e.message.includes('sudo snap')) throw e; // Pass through our custom Linux error
           throw new Error(`Failed to install gh automatically.\nReason: ${e.message}\nPlease install from: ${pc.cyan('https://cli.github.com')}`);
         }
       } else {
@@ -168,7 +165,6 @@ async function handleFiles() {
 }
 
 async function setupGithubLabels(repo: string) {
-  const s = spinner();
   s.start(`Setting up GitHub labels for ${pc.cyan(repo)}...`);
 
   const labels = [
@@ -324,10 +320,9 @@ async function main() {
     process.exit(0);
   }
 
-  const sFiles = spinner();
-  sFiles.start('Writing configuration files...');
+  s.start('Writing configuration files...');
   await updateEnvAndConfig(repo as string, apiKey as string);
-  sFiles.stop(pc.green('✔ Configuration files written.'));
+  s.stop(pc.green('✔ Configuration files written.'));
 
   if (setupLabels) {
     await setupGithubLabels(repo as string);
@@ -346,13 +341,12 @@ async function main() {
   });
 
   if (testIssue && !isCancel(testIssue)) {
-    const sIssue = spinner();
-    sIssue.start('Creating example issue on GitHub...');
+    s.start('Creating example issue on GitHub...');
     try {
       await execAsync(`gh issue create --repo ${repo} --title "Build a simple todo app with auth" --body "A task management app. Users can sign up, create todos, mark them done. Deploy to Vercel." --label "station:intake"`);
-      sIssue.stop(pc.green('✔ Example issue created!'));
+      s.stop(pc.green('✔ Example issue created!'));
     } catch (e: any) {
-      sIssue.stop(pc.yellow('⚠ Failed to create example issue (check your gh permissions).'));
+      s.stop(pc.yellow('⚠ Failed to create example issue (check your gh permissions).'));
     }
   }
 
