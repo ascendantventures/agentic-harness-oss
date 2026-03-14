@@ -103,7 +103,7 @@ export class QAStation extends BaseStation {
   readonly label = 'station:build';
   readonly nextLabel = 'station:qa';
   readonly model = 'claude-sonnet-4-6';
-  readonly concurrency = 2; // Parallel QA safe — each agent tests its own PR/preview
+  readonly concurrency = 3; // Parallel QA safe — each agent tests its own PR/preview
   readonly ttl = 1800000; // 30 min
 
   /** Set when shouldProcess returns false due to build not moving — used by runner for stall tracking. */

@@ -93,7 +93,7 @@ export class BuildStation extends BaseStation {
   readonly label = 'station:design';
   readonly nextLabel = 'station:build';
   readonly model = 'claude-sonnet-4-6';
-  readonly concurrency = 2; // Feature branches enable safe parallel builds
+  readonly concurrency = 3; // Feature branches enable safe parallel builds
   readonly ttl = 7200000; // 2 hours
 
   /**
