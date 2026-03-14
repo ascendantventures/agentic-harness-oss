@@ -43,7 +43,7 @@ export async function getCurrentSettings(): Promise<{ repo: string; key: string 
   return { repo: currentRepo, key: currentKey };
 }
 
-export async function saveConfiguration(repo: string, apiKey: string, hasClaude = false): Promise<void> {
+export async function saveConfiguration(repo: string, apiKey: string, hasClaude = false, model?: string): Promise<void> {
   const configPath = path.join(REPO_ROOT, 'factory', 'config.json');
   const envPath = path.join(REPO_ROOT, '.env');
 
@@ -53,11 +53,24 @@ export async function saveConfiguration(repo: string, apiKey: string, hasClaude 
     const config = JSON.parse(configContent);
     if (!config.github) config.github = {};
     config.github.repo = repo;
+
+    // Apply global model preference to all stations if provided
+    if (model && config.stations) {
+      for (const stationId in config.stations) {
+        if (config.stations[stationId]) {
+          config.stations[stationId].model = model;
+        }
+      }
+    }
+
     await fs.writeFile(configPath, JSON.stringify(config, null, 2), 'utf8');
   } catch (e) {
     // If it fails to parse, fallback to safe regex against old values
     let configContent = await fs.readFile(configPath, 'utf8');
     configContent = configContent.replace(/"repo":\s*".*?"/, `"repo": "${repo}"`);
+    if (model) {
+      configContent = configContent.replace(/"model":\s*".*?"/g, `"model": "${model}"`);
+    }
     await fs.writeFile(configPath, configContent, 'utf8');
   }
 

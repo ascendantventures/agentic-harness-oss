@@ -1,11 +1,11 @@
 {
   "pipelinesFile": "./pipelines.json",
   "stations": {
-    "spec":    { "model": "claude-sonnet-4-6", "concurrency": 3 },
-    "design":  { "model": "claude-opus-4-5",   "concurrency": 2 },
-    "build":   { "model": "claude-sonnet-4-6", "concurrency": 1 },
-    "qa":      { "model": "claude-sonnet-4-6", "concurrency": 1 },
-    "bugfix":  { "model": "claude-sonnet-4-6", "concurrency": 1 }
+    "spec":    { "model": "claude-3-5-sonnet-latest", "concurrency": 3 },
+    "design":  { "model": "claude-3-opus-latest",   "concurrency": 2 },
+    "build":   { "model": "claude-3-5-sonnet-latest", "concurrency": 1 },
+    "qa":      { "model": "claude-3-5-sonnet-latest", "concurrency": 1 },
+    "bugfix":  { "model": "claude-3-5-sonnet-latest", "concurrency": 1 }
   },
   "github": {
     "repo": "your-org/your-repo"

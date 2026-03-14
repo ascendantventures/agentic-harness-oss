@@ -1,4 +1,4 @@
-import { intro, outro, text, confirm, spinner, isCancel, cancel, note } from '@clack/prompts';
+import { intro, outro, text, select, confirm, spinner, isCancel, cancel, note } from '@clack/prompts';
 import pc from 'picocolors';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -90,6 +90,20 @@ async function main() {
     process.exit(0);
   }
 
+  const model = await select({
+    message: `Which Claude model should the factory use?`,
+    options: [
+      { value: 'claude-3-5-sonnet-latest', label: 'Claude 3.5 Sonnet', hint: 'recommended: balanced power & speed' },
+      { value: 'claude-3-5-haiku-latest', label: 'Claude 3.5 Haiku', hint: 'lowest latency & cost' },
+      { value: 'claude-3-opus-latest', label: 'Claude 3 Opus', hint: 'highest quality' },
+    ],
+  });
+
+  if (isCancel(model)) {
+    cancel('Operation cancelled.');
+    process.exit(0);
+  }
+
   const setupLabels = await confirm({
     message: `Should I create the required issue labels via ${pc.bold('gh')} in your repo automatically?`,
     initialValue: true,
@@ -102,7 +116,7 @@ async function main() {
 
   const sFiles = spinner();
   sFiles.start('Writing configuration files...');
-  await saveConfiguration(repo as string, apiKey as string, hasClaude);
+  await saveConfiguration(repo as string, apiKey as string, hasClaude, model as string);
   sFiles.stop(pc.green('✔ Configuration files written.'));
 
   if (setupLabels) {
