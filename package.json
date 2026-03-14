@@ -8,7 +8,7 @@
   },
   "scripts": {
     "start": "tsx factory/src/loop.ts",
-    "dev": "tsx watch factory/src/loop.ts",
+    "dev": "tsx watch --include factory/config.json factory/src/loop.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "setup": "npm install && npx tsx scripts/setup.ts",
