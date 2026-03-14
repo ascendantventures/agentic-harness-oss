@@ -142,31 +142,32 @@ Agents can self-discover additional skills mid-task via `find-skills`.
 ```bash
 git clone https://github.com/ascendantventures/agentic-harness-oss
 cd agentic-harness-oss
-npm install
 ```
 
-### 2. Configure
+### 2. Configure (Interactive)
+
+The easiest way to get started is by using the interactive setup script!
 
 ```bash
-cp .env.example .env
-cp factory/config.example.json factory/config.json
-# Edit both files with your values
+npm run setup
 ```
 
-### 3. Create GitHub labels
 
-```bash
-REPO=owner/repo
-for label in "station:intake" "station:spec" "station:design" "station:build" \
-  "station:qa" "station:uat" "station:bugfix" "station:done" "station:skip" \
-  "station:blocked" "status:paused" "complexity:simple" "complexity:medium" \
-  "complexity:complex"; do
-  gh label create "$label" --repo $REPO 2>/dev/null || echo "exists: $label"
-done
-```
 
-### 4. Run
+This will launch a beautiful interactive terminal UI that will walk you through the entire process:
+1. Install essential project dependencies.
+2. Check that you have `node`, `claude`, and `gh` installed.
+3. Ask for your Anthropic API Key and target GitHub repository.
+4. Auto-configure your `.env` and `factory/config.json`.
+5. Offer to automatically create all the required GitHub labels (`station:spec`, `station:design`, etc.) in your repository.
+6. Offer to queue your first test issue (a "Todo App") automatically.
+7. Offer to start the factory loop (`npm run dev`) immediately.
 
+### 3. Manual Execution (Optional)
+
+If you chose not to start the loop or queue the issue during the interactive setup, you can do so manually:
+
+**Start the factory:**
 ```bash
 # Run once
 npm start
@@ -178,8 +179,7 @@ npm run dev
 * * * * * cd /path/to/agentic-harness-oss && npm start >> /tmp/factory.log 2>&1
 ```
 
-### 5. Queue your first issue
-
+**Queue an issue manually:**
 ```bash
 gh issue create --repo owner/repo \
   --title "Build a simple todo app with auth" \
