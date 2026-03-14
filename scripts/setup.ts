@@ -13,9 +13,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..');
 
-const s = spinner();
-
 async function checkDependencies() {
+  const s = spinner();
   s.start('Checking dependencies (Node.js, claude, gh)...');
   
   try {
@@ -130,6 +129,7 @@ async function checkDependencies() {
         try {
           await execAsync(`echo "${ghToken}" | gh auth login --with-token`);
           authSuccess = true;
+          s.stop(pc.green('✔ GitHub authenticated.'));
           s.start('Re-checking GitHub dependencies...');
         } catch (e: any) {
           s.stop(pc.red('  Failed to authenticate with that token. Please try again.'));
@@ -165,6 +165,7 @@ async function handleFiles() {
 }
 
 async function setupGithubLabels(repo: string) {
+  const s = spinner();
   s.start(`Setting up GitHub labels for ${pc.cyan(repo)}...`);
 
   const labels = [
@@ -320,9 +321,10 @@ async function main() {
     process.exit(0);
   }
 
-  s.start('Writing configuration files...');
+  const sFiles = spinner();
+  sFiles.start('Writing configuration files...');
   await updateEnvAndConfig(repo as string, apiKey as string);
-  s.stop(pc.green('✔ Configuration files written.'));
+  sFiles.stop(pc.green('✔ Configuration files written.'));
 
   if (setupLabels) {
     await setupGithubLabels(repo as string);
@@ -334,12 +336,13 @@ async function main() {
   });
 
   if (testIssue && !isCancel(testIssue)) {
-    s.start('Creating example issue on GitHub...');
+    const sIssue = spinner();
+    sIssue.start('Creating example issue on GitHub...');
     try {
       await execAsync(`gh issue create --repo ${repo} --title "Build a simple todo app with auth" --body "A task management app. Users can sign up, create todos, mark them done. Deploy to Vercel." --label "station:intake"`);
-      s.stop(pc.green('✔ Example issue created!'));
+      sIssue.stop(pc.green('✔ Example issue created!'));
     } catch (e: any) {
-      s.stop(pc.yellow('⚠ Failed to create example issue (check your gh permissions).'));
+      sIssue.stop(pc.yellow('⚠ Failed to create example issue (check your gh permissions).'));
     }
   }
 
