@@ -18,15 +18,6 @@ const TIMEOUT_BY_STATION: Record<string, string> = {
   bugfix: '3600',
 };
 
-/** Per-station model (when using claude CLI) */
-const MODEL_BY_STATION: Record<string, string> = {
-  spec: 'claude-sonnet-4-6',
-  qa: 'claude-sonnet-4-6',
-  design: 'claude-opus-4-5',
-  build: 'claude-sonnet-4-6',
-  bugfix: 'claude-sonnet-4-6',
-};
-
 export function spawnAgent(
   task: AgentTask,
   useClaudeCli: boolean,
@@ -51,7 +42,7 @@ export function spawnAgent(
   if (useClaudeCli) {
     // ── v2: Claude Code CLI (claude -p) ──────────────────────────────────
     const apiKey = getCurrentKey();
-    const model = MODEL_BY_STATION[task.station] ?? 'claude-sonnet-4-6';
+    const model = task.model ?? 'claude-sonnet-4-6';
     const taskFd = openSync(taskFile, 'r');
     child = spawnProcess(
       CLAUDE_BIN,

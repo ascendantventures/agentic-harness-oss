@@ -8,12 +8,11 @@
   },
   "scripts": {
     "start": "tsx factory/src/loop.ts",
-    "dev": "tsx watch factory/src/loop.ts",
+    "dev": "tsx watch --include factory/config.json factory/src/loop.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tests/**/*.test.ts",
-    "validate": "bash scripts/validate-stations.sh",
-    "setup": "bash scripts/install.sh"
+    "setup": "npm install && npx tsx scripts/setup.ts",
+    "setup:reset": "npm install && npx tsx scripts/setup.ts --reset"
   },
   "engines": {
     "node": ">=18"
@@ -36,5 +35,9 @@
     "type": "git",
     "url": "https://github.com/ascendant-ventures/agentic-harness"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@clack/prompts": "^1.1.0",
+    "picocolors": "^1.1.1"
+  }
 }

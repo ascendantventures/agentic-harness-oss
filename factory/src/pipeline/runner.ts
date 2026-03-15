@@ -32,6 +32,7 @@ const PENDING_FILE = '/tmp/factory-pending.json';
 const PHASE2_CHECKED_FILE = '/tmp/factory-phase2-checked.json';
 
 export interface RunnerDeps {
+  config?: import('../types/index.js').Config;
   REPO: string;
   SUPABASE_URL: string;
   SUPABASE_KEY: string;
@@ -59,7 +60,7 @@ export interface RunnerDeps {
 /** Build a FactoryContext from RunnerDeps (bridges old deps shape to new context shape). */
 function makeCtx(deps: RunnerDeps): FactoryContext {
   return {
-    config: {
+    config: deps.config ?? {
       stations: {},
       github: { repo: deps.REPO },
       concurrency: { maxTasksPerRun: deps.MAX_TASKS_PER_RUN },

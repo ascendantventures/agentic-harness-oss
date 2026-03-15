@@ -175,6 +175,7 @@ try {
 // ─── Runner deps ──────────────────────────────────────────────────────────────
 
 const depsV2: RunnerDepsV2 = {
+  config,
   REPO,
   SUPABASE_URL,
   SUPABASE_KEY,
