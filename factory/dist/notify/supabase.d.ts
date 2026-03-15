@@ -14,4 +14,9 @@ export declare function isSpecApproved(issue: {
 export declare function isClientApproved(issue: {
     number: number;
 }, supabaseUrl: string, supabaseKey: string, log: (msg: string) => void): Promise<boolean>;
+/**
+ * Upsert harness heartbeat row to Supabase.
+ * Called once per loop tick so the dashboard can show live status.
+ */
+export declare function upsertHarnessHeartbeat(supabaseUrl: string, serviceRoleKey: string, pid: number, activeAgents: number, lockSnapshot: Record<string, unknown>, log: (msg: string) => void): Promise<void>;
 //# sourceMappingURL=supabase.d.ts.map

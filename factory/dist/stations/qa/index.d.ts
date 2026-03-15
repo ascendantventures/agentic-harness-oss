@@ -25,7 +25,7 @@ export declare class QAStation extends BaseStation {
     readonly label = "station:build";
     readonly nextLabel = "station:qa";
     readonly model = "claude-sonnet-4-6";
-    readonly concurrency = 1;
+    readonly concurrency = 3;
     readonly ttl = 1800000;
     /** Set when shouldProcess returns false due to build not moving — used by runner for stall tracking. */
     lastQAInfo?: QAInfo;

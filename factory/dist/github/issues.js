@@ -85,10 +85,57 @@ export function hasDesignComment(issueNumber, repo) {
 /** Check DESIGN.md quality (word count + required sections) */
 export function checkDesignQuality(issueNumber, repo, log) {
     try {
-        const result = execSync(`gh issue view ${issueNumber} --repo ${repo} --json comments`, { encoding: 'utf8', timeout: 15000 });
-        const { comments } = JSON.parse(result);
+        const result = execSync(`gh issue view ${issueNumber} --repo ${repo} --json comments,labels`, { encoding: 'utf8', timeout: 15000 });
+        const { comments, labels } = JSON.parse(result);
         const allBodies = (comments ?? []).map((c) => c.body ?? '').join('\n');
-        // AC-002.1: Word count check
+        const labelNames = (labels ?? []).map((l) => l.name);
+        // Determine complexity tier from labels
+        const isSimple = labelNames.includes('complexity:simple') || labelNames.includes('bug');
+        const isMedium = labelNames.includes('complexity:medium');
+        const isComplex = labelNames.includes('complexity:complex');
+        // UAT follow-ups and type:enhancement are typically lighter-weight
+        const isFollowUp = labelNames.includes('type:enhancement') ||
+            (comments ?? []).some((c) => c.body?.includes('[UAT Follow-up]') || c.body?.includes('follow-up'));
+        // Tiered quality gates based on complexity
+        if (isSimple || isFollowUp) {
+            // Simple/follow-up: just need a DESIGN.md comment with basic structure
+            const hasDesignHeader = allBodies.includes('DESIGN.md') || allBodies.includes('Design');
+            const designWordCount = allBodies.split(/\s+/).filter(Boolean).length;
+            if (!hasDesignHeader || designWordCount < 300) {
+                return {
+                    ok: false,
+                    reason: `Simple/follow-up DESIGN.md too brief (${designWordCount} words, minimum 300)`,
+                };
+            }
+            // Must have at least a component spec or change description
+            const hasComponentInfo = allBodies.includes('Component') || allBodies.includes('File Changes') ||
+                allBodies.includes('Changes Summary') || allBodies.includes('Specification');
+            if (!hasComponentInfo) {
+                return {
+                    ok: false,
+                    reason: 'Simple/follow-up DESIGN.md missing component or change specification',
+                };
+            }
+            return { ok: true };
+        }
+        if (isMedium) {
+            // Medium: need core design sections but not full Impeccable spec
+            const mediumWordMin = 800;
+            const wordCount = allBodies.split(/\s+/).filter(Boolean).length;
+            if (wordCount < mediumWordMin) {
+                return {
+                    ok: false,
+                    reason: `Medium DESIGN.md too short (${wordCount} words, minimum ${mediumWordMin})`,
+                };
+            }
+            const mediumRequired = ['Design Philosophy', 'Component'];
+            const missing = mediumRequired.filter((s) => !allBodies.includes(s));
+            if (missing.length > 0) {
+                return { ok: false, reason: `Medium DESIGN.md missing: ${missing.join(', ')}` };
+            }
+            return { ok: true };
+        }
+        // Complex (or unlabeled): full Impeccable quality gate
         const wordCount = allBodies.split(/\s+/).filter(Boolean).length;
         if (wordCount < 1500) {
             return {
@@ -96,7 +143,6 @@ export function checkDesignQuality(issueNumber, repo, log) {
                 reason: `DESIGN.md too short (${wordCount} words, minimum 1500). All 12+ sections required.`,
             };
         }
-        // AC-002.2: Required section headers
         const requiredSections = [
             'Design Philosophy',
             'Color System',

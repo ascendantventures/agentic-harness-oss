@@ -75,7 +75,7 @@ export class QAStation extends BaseStation {
     label = 'station:build';
     nextLabel = 'station:qa';
     model = 'claude-sonnet-4-6';
-    concurrency = 1; // Rate limit safety — max 1 concurrent QA
+    concurrency = 3; // Parallel QA safe — each agent tests its own PR/preview
     ttl = 1800000; // 30 min
     /** Set when shouldProcess returns false due to build not moving — used by runner for stall tracking. */
     lastQAInfo;
@@ -322,7 +322,7 @@ gh issue create --repo ${ctx.env.repo} \\
 **Steps to reproduce:** ...
 **Expected:** ...
 **Actual:** ..." \\
-  --label "type:bug"
+  --label "type:bug" --label "station:intake"
 
 gh issue edit ${issue.number} --repo ${ctx.env.repo} \\
   --remove-label "station:qa" --remove-label "station:build" --add-label "station:bugfix"

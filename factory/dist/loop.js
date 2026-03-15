@@ -39,7 +39,7 @@ import { tickV2 } from './pipeline/runner.js';
 import { maybeSweep } from './pipeline/reconciler.js';
 import { StationRegistry } from './stations/registry.js';
 import { notifyDiscord } from './notify/discord.js';
-import { writeTokenUsageAsync } from './notify/supabase.js';
+import { writeTokenUsageAsync, upsertHarnessHeartbeat } from './notify/supabase.js';
 // ─── Constants ─────────────────────────────────────────────────────────────────
 const USE_CLAUDE_CLI = process.env.FACTORY_USE_CLAUDE === '1';
 const FACTORY_KEYS_FILE = process.env.FACTORY_KEYS_FILE ??
@@ -83,7 +83,7 @@ catch (e) {
     config = {
         stations: {},
         github: { repo: REPO },
-        concurrency: { maxTasksPerRun: 2 },
+        concurrency: { maxTasksPerRun: 4 },
     };
 }
 const MAX_TASKS_PER_RUN = config.concurrency?.maxTasksPerRun ?? 2;
@@ -176,6 +176,9 @@ async function main() {
     // Clean dead locks before processing (Layer 1: includes post-exit label reconciliation)
     lockManager.setPipelinesConfig(pipelinesConfig, REPO);
     lockManager.cleanDeadLocks();
+    // Upsert heartbeat to Supabase so the dashboard shows live status
+    const currentLocks = lockManager.getLocks();
+    await upsertHarnessHeartbeat(SUPABASE_URL, SUPABASE_KEY, process.pid, Object.keys(currentLocks).length, currentLocks, log);
     // Layer 3: Periodic reconciliation sweep (every 10 ticks)
     maybeSweep(REPO, pipelinesConfig, log);
     // Key validation (only when using claude CLI)

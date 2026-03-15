@@ -22,7 +22,7 @@ export declare class BuildStation extends BaseStation {
     readonly label = "station:design";
     readonly nextLabel = "station:build";
     readonly model = "claude-sonnet-4-6";
-    readonly concurrency = 1;
+    readonly concurrency = 3;
     readonly ttl = 7200000;
     /**
      * Returned when design quality fails or design is missing.

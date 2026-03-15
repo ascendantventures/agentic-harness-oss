@@ -265,3 +265,44 @@ export async function isClientApproved(
     return true;
   }
 }
+
+/**
+ * Upsert harness heartbeat row to Supabase.
+ * Called once per loop tick so the dashboard can show live status.
+ */
+export async function upsertHarnessHeartbeat(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  pid: number,
+  activeAgents: number,
+  lockSnapshot: Record<string, unknown>,
+  log: (msg: string) => void,
+): Promise<void> {
+  if (!supabaseUrl || !serviceRoleKey) return;
+  try {
+    const headers = {
+      ...makeSupabaseHeaders(serviceRoleKey),
+      'Content-Type': 'application/json',
+      Prefer: 'resolution=merge-duplicates',
+    };
+    const body = JSON.stringify({
+      id: 'main',
+      pid,
+      active_agents: activeAgents,
+      lock_snapshot: lockSnapshot,
+      status: 'running',
+      last_seen: new Date().toISOString(),
+    });
+    const res = await fetch(`${supabaseUrl}/rest/v1/harness_heartbeat`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      log(`[heartbeat] upsert failed ${res.status}: ${text}`);
+    }
+  } catch (e: any) {
+    log(`[heartbeat] non-blocking error: ${e.message}`);
+  }
+}

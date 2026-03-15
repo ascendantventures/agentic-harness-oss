@@ -39,7 +39,7 @@ import { tickV2, type RunnerDepsV2 } from './pipeline/runner.js';
 import { maybeSweep } from './pipeline/reconciler.js';
 import { StationRegistry } from './stations/registry.js';
 import { notifyDiscord } from './notify/discord.js';
-import { writeTokenUsageAsync } from './notify/supabase.js';
+import { writeTokenUsageAsync, upsertHarnessHeartbeat } from './notify/supabase.js';
 import type { PipelinesConfig } from './types/pipeline.js';
 import type { LockEntry } from './types/index.js';
 
@@ -211,6 +211,17 @@ async function main(): Promise<void> {
   // Clean dead locks before processing (Layer 1: includes post-exit label reconciliation)
   lockManager.setPipelinesConfig(pipelinesConfig, REPO);
   lockManager.cleanDeadLocks();
+
+  // Upsert heartbeat to Supabase so the dashboard shows live status
+  const currentLocks = lockManager.getLocks();
+  await upsertHarnessHeartbeat(
+    SUPABASE_URL,
+    SUPABASE_KEY,
+    process.pid,
+    Object.keys(currentLocks).length,
+    currentLocks as Record<string, unknown>,
+    log,
+  );
 
   // Layer 3: Periodic reconciliation sweep (every 10 ticks)
   maybeSweep(REPO, pipelinesConfig, log);
