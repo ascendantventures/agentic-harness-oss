@@ -194,6 +194,7 @@ const depsV2: RunnerDepsV2 = {
   isLocked: (key) => lockManager.isLocked(key),
   countActiveLocks: (station) => lockManager.countActiveLocks(station),
   isInCrashBackoff: (key) => backoffManager.isInCrashBackoff(key),
+  backoffManager,
   getCurrentKey: () => keyManager.getCurrentKey(),
   buildAgentEnv: (apiKey) => keyManager.buildAgentEnv(apiKey),
   rotateApiKey: (reason) => keyManager.rotateKey(reason),

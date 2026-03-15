@@ -8,6 +8,16 @@
  */
 import type { PipelinesConfig, PipelineStageConfig } from '../types/pipeline.js';
 /**
+ * Check if a PR's diff includes modifications to required artifact files.
+ * Returns { pass: true } if all required artifacts are present,
+ * or { pass: false, missing: string[] } with human-readable failure reasons.
+ */
+export declare function checkArtifactGate(issueNumber: number, station: string, repo: string, buildRepo: string, log: (msg: string) => void): {
+    pass: boolean;
+    missing: string[];
+    warnings: string[];
+};
+/**
  * Find the pipeline stage for a given station label.
  */
 export declare function findStageByLabel(pipelinesConfig: PipelinesConfig, stationLabel: string): PipelineStageConfig | null;

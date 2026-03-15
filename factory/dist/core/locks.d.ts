@@ -1,4 +1,4 @@
-import type { LockEntry, LockFile, LockManager } from '../types/index.js';
+import type { LockEntry, LockFile, LockManager, BackoffEntry } from '../types/index.js';
 import type { PipelinesConfig } from '../types/pipeline.js';
 /** Per-station lock TTL — complexity:simple gets shorter TTLs */
 export declare const LOCK_TTL: Record<string, number>;
@@ -19,15 +19,14 @@ export declare class LockManagerImpl implements LockManager {
     private readonly notifyDiscord;
     private pipelinesConfig?;
     private repo?;
-    constructor(lockFile: string, agentActivityFile: string, log: (msg: string) => void, crashBackoff: Map<string, {
-        failures: number;
-        until: number;
-    }>, saveCrashBackoff: (map: Map<string, {
-        failures: number;
-        until: number;
-    }>) => void, rotateApiKey: (reason: string) => void, checkLogForKeyError: (logPath: string) => boolean, writeTokenUsageAsync: (issueNumber: number, station: string, logFile: string) => Promise<void>, notifyDiscord: (msg: string) => Promise<void>, pipelinesConfig?: PipelinesConfig | undefined, repo?: string | undefined);
+    constructor(lockFile: string, agentActivityFile: string, log: (msg: string) => void, crashBackoff: Map<string, BackoffEntry>, saveCrashBackoff: (map: Map<string, BackoffEntry>) => void, rotateApiKey: (reason: string) => void, checkLogForKeyError: (logPath: string) => boolean, writeTokenUsageAsync: (issueNumber: number, station: string, logFile: string) => Promise<void>, notifyDiscord: (msg: string) => Promise<void>, pipelinesConfig?: PipelinesConfig | undefined, repo?: string | undefined);
     /** Set pipelines config for post-exit label reconciliation */
     setPipelinesConfig(config: PipelinesConfig, repo: string): void;
+    /**
+     * Shelve a stuck issue: replace its station label with station:stuck,
+     * post a comment explaining why, and notify Discord.
+     */
+    private shelveIssue;
     getLocks(): LockFile;
     setLock(key: string, meta: Omit<LockEntry, 'ts'>): void;
     removeLock(key: string): void;

@@ -488,6 +488,8 @@ export interface RunnerDepsV2 extends RunnerDeps {
   pipelinesConfig: PipelinesConfig;
   /** Fully populated station registry — from StationRegistry.createDefault() */
   registry: import('../stations/registry.js').StationRegistry;
+  /** Backoff manager — for retry cap checks */
+  backoffManager: import('../types/index.js').BackoffManager;
 }
 
 /**
@@ -521,6 +523,7 @@ export async function tickV2(deps: RunnerDepsV2): Promise<void> {
     maxTasksPerRun: deps.MAX_TASKS_PER_RUN,
     useClaudeCli: deps.USE_CLAUDE_CLI,
     isInCrashBackoff: deps.isInCrashBackoff,
+    backoffManager: deps.backoffManager,
     getCurrentKey: deps.getCurrentKey,
     buildAgentEnv: deps.buildAgentEnv,
   };

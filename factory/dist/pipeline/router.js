@@ -15,6 +15,8 @@
 import { getIssuesByLabel } from '../github/issues.js';
 import { spawnAgent } from '../agents/spawn.js';
 import { lockKey } from '../core/locks.js';
+import { DEFAULT_MAX_RETRIES } from '../core/backoff.js';
+import { flipLabel } from './reconciler.js';
 import { PipelineDetector } from './detector.js';
 // ─── PipelineRouter ───────────────────────────────────────────────────────────
 export class PipelineRouter {
@@ -110,6 +112,13 @@ export class PipelineRouter {
                     ctx.log(`  #${issue.number} in crash backoff for ${station.id}`);
                     continue;
                 }
+                // Retry cap — shelve issues that have exceeded max retries
+                const stationMaxRetries = ctx.config.stations[station.id]?.settings?.maxRetries
+                    ?? DEFAULT_MAX_RETRIES[station.id] ?? 5;
+                if (ctx.backoffManager.isMaxedOut(key, stationMaxRetries)) {
+                    // Don't spawn — LockManager.cleanDeadLocks handles the shelving
+                    continue;
+                }
                 // Station gate: shouldProcess()
                 let shouldResult;
                 try {
@@ -127,18 +136,27 @@ export class PipelineRouter {
                 let task;
                 try {
                     task = await station.buildTask(issue, ctx);
+                    // Resolve model: stage override > station config > error
+                    const stationConfig = ctx.config.stations[station.id];
+                    const effectiveModel = stage.model ?? stationConfig?.model;
+                    if (!effectiveModel) {
+                        ctx.log(`  #${issue.number}: ERROR — no model configured for station "${station.id}"`);
+                        continue;
+                    }
+                    task.model = effectiveModel;
                 }
                 catch (e) {
                     ctx.log(`  #${issue.number} buildTask threw: ${e.message}`);
                     continue;
                 }
-                // Apply stage model override (if set in pipelines.json)
-                if (stage.model) {
-                    task = { ...task, model: stage.model };
-                }
                 // Spawn the agent
-                ctx.log(`  Spawning ${station.id.toUpperCase()} agent for #${issue.number}: ${issue.title}`);
+                ctx.log(`  Spawning ${station.id.toUpperCase()} agent for #${issue.number}: ${issue.title} [model: ${task.model}]`);
                 const handle = spawnAgent(task, ctx.useClaudeCli, ctx.buildAgentEnv, ctx.getCurrentKey, ctx.log);
+                // Flip label at spawn time so the dashboard reflects "in progress"
+                // The agent prompt may also flip the label — that's a harmless no-op.
+                if (stage.nextLabel) {
+                    flipLabel(issue.number, ctx.env.repo, stage.label, stage.nextLabel, ctx.log, `spawn-time flip: ${station.id} agent started`);
+                }
                 // Acquire lock
                 ctx.locks.setLock(key, {
                     issue: issue.number,

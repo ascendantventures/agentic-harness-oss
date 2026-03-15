@@ -79,6 +79,8 @@ export interface BackoffEntry {
     failures: number;
     /** Epoch ms when backoff expires */
     until: number;
+    /** Count of 0-byte log (env/setup) failures — capped separately */
+    emptyRuns?: number;
 }
 export type BackoffFile = Record<string, BackoffEntry>;
 /** Task definition passed to the agent spawner */
@@ -212,6 +214,8 @@ export interface BackoffManager {
     load(): Map<string, BackoffEntry>;
     save(map: Map<string, BackoffEntry>): void;
     isInCrashBackoff(key: string): boolean;
+    /** Check if the key has exceeded the retry cap and should be shelved */
+    isMaxedOut(key: string, maxRetries: number): boolean;
     recordCrash(key: string, fast: boolean, logFile?: string): void;
     clearBackoff(key: string): void;
     getBackoff(key: string): BackoffEntry | undefined;

@@ -1,8 +1,9 @@
 import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
 import { execSync } from 'child_process';
-import type { LockEntry, LockFile, LockManager } from '../types/index.js';
+import type { LockEntry, LockFile, LockManager, BackoffEntry } from '../types/index.js';
 import type { PipelinesConfig } from '../types/pipeline.js';
 import { reconcileAfterExit } from '../pipeline/reconciler.js';
+import { DEFAULT_MAX_RETRIES, MAX_EMPTY_RETRIES } from './backoff.js';
 
 /** Per-station lock TTL — complexity:simple gets shorter TTLs */
 export const LOCK_TTL: Record<string, number> = {
@@ -46,8 +47,8 @@ export class LockManagerImpl implements LockManager {
     private readonly lockFile: string,
     private readonly agentActivityFile: string,
     private readonly log: (msg: string) => void,
-    private readonly crashBackoff: Map<string, { failures: number; until: number }>,
-    private readonly saveCrashBackoff: (map: Map<string, { failures: number; until: number }>) => void,
+    private readonly crashBackoff: Map<string, BackoffEntry>,
+    private readonly saveCrashBackoff: (map: Map<string, BackoffEntry>) => void,
     private readonly rotateApiKey: (reason: string) => void,
     private readonly checkLogForKeyError: (logPath: string) => boolean,
     private readonly writeTokenUsageAsync: (
@@ -64,6 +65,49 @@ export class LockManagerImpl implements LockManager {
   setPipelinesConfig(config: PipelinesConfig, repo: string): void {
     this.pipelinesConfig = config;
     this.repo = repo;
+  }
+
+  /**
+   * Shelve a stuck issue: replace its station label with station:stuck,
+   * post a comment explaining why, and notify Discord.
+   */
+  private shelveIssue(issueNumber: number, station: string, reason: string): void {
+    if (!this.repo) return;
+    try {
+      // Find and remove current station labels, add station:stuck
+      const labelsJson = execSync(
+        `gh issue view ${issueNumber} --repo ${this.repo} --json labels --jq '[.labels[].name]'`,
+        { encoding: 'utf8', timeout: 10000 },
+      ).trim();
+      const labels: string[] = JSON.parse(labelsJson);
+      const stationLabels = labels.filter(l => l.startsWith('station:'));
+
+      for (const sl of stationLabels) {
+        execSync(
+          `gh issue edit ${issueNumber} --repo ${this.repo} --remove-label "${sl}"`,
+          { encoding: 'utf8', timeout: 10000 },
+        );
+      }
+      execSync(
+        `gh issue edit ${issueNumber} --repo ${this.repo} --add-label "station:stuck"`,
+        { encoding: 'utf8', timeout: 10000 },
+      );
+
+      // Post a comment
+      const comment = `## 🚫 Issue shelved — retry cap exceeded\n\n**Station:** ${station}\n**Reason:** ${reason}\n\nThis issue has been automatically moved to \`station:stuck\` after exceeding the retry limit. A human should review the failure logs and either:\n1. Fix the underlying issue and re-label to the appropriate station\n2. Close the issue if no longer needed\n\nTo retry: remove \`station:stuck\`, add the appropriate station label, and clear the crash backoff file entry.`;
+      execSync(
+        `gh issue comment ${issueNumber} --repo ${this.repo} --body ${JSON.stringify(comment)}`,
+        { encoding: 'utf8', timeout: 15000 },
+      );
+
+      this.notifyDiscord(
+        `🚫 Issue #${issueNumber} shelved (\`station:stuck\`): ${reason}. Needs human review.`,
+      ).catch(() => {});
+
+      this.log(`  ✅ #${issueNumber} moved to station:stuck`);
+    } catch (e: any) {
+      this.log(`  ⚠️ Failed to shelve #${issueNumber}: ${e.message?.slice(0, 100)}`);
+    }
   }
 
   getLocks(): LockFile {
@@ -131,14 +175,36 @@ export class LockManagerImpl implements LockManager {
             if (agentLogPath && this.checkLogForKeyError(agentLogPath)) {
               this.rotateApiKey(`fast-fail on ${key}`);
             }
+
+            // Track empty (0-byte) log failures separately
+            let logSize = -1;
+            if (val.logFile) {
+              try { logSize = existsSync(val.logFile) ? statSync(val.logFile).size : 0; } catch { logSize = 0; }
+            }
+
             const prev = this.crashBackoff.get(key) ?? { failures: 0, until: 0 };
             const failures = prev.failures + 1;
+            let emptyRuns = prev.emptyRuns ?? 0;
+            if (logSize === 0) emptyRuns++;
             const backoffMs = Math.min(failures * 5 * 60000, 30 * 60000); // 5m, 10m, 15m... max 30m
-            this.crashBackoff.set(key, { failures, until: Date.now() + backoffMs });
+            this.crashBackoff.set(key, { failures, until: Date.now() + backoffMs, emptyRuns });
             this.saveCrashBackoff(this.crashBackoff);
-            this.log(
-              `⏸ Crash backoff for ${key}: ${failures} fast-fail(s), cooldown ${backoffMs / 60000}m`,
-            );
+
+            const maxRetries = DEFAULT_MAX_RETRIES[val.station] ?? 5;
+            const isMaxed = failures >= maxRetries || emptyRuns >= MAX_EMPTY_RETRIES;
+
+            if (isMaxed && val.issue && val.station && this.repo) {
+              // Shelve the issue — label it station:stuck so it stops retrying
+              const reason = emptyRuns >= MAX_EMPTY_RETRIES
+                ? `${emptyRuns} empty-log failures (env/setup issue)`
+                : `${failures} consecutive failures (max ${maxRetries})`;
+              this.log(`🚫 Shelving #${val.issue} (${val.station}): ${reason}`);
+              this.shelveIssue(val.issue, val.station, reason);
+            } else {
+              this.log(
+                `⏸ Crash backoff for ${key}: ${failures} fast-fail(s)${logSize === 0 ? ' (empty log)' : ''}, cooldown ${backoffMs / 60000}m`,
+              );
+            }
           } else {
             this.crashBackoff.delete(key); // successful run (> 2 min) — clear backoff
             this.saveCrashBackoff(this.crashBackoff);

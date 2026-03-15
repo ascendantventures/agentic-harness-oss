@@ -145,6 +145,7 @@ catch (e) {
 }
 // ─── Runner deps ──────────────────────────────────────────────────────────────
 const depsV2 = {
+    config,
     REPO,
     SUPABASE_URL,
     SUPABASE_KEY,
@@ -162,6 +163,7 @@ const depsV2 = {
     isLocked: (key) => lockManager.isLocked(key),
     countActiveLocks: (station) => lockManager.countActiveLocks(station),
     isInCrashBackoff: (key) => backoffManager.isInCrashBackoff(key),
+    backoffManager,
     getCurrentKey: () => keyManager.getCurrentKey(),
     buildAgentEnv: (apiKey) => keyManager.buildAgentEnv(apiKey),
     rotateApiKey: (reason) => keyManager.rotateKey(reason),

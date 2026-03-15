@@ -76,9 +76,10 @@ fi
 echo "✅ TypeScript OK"
 \`\`\`
 
-### 5. Update CLAUDE.md + REGRESSION.md with bug learnings
+### 5. Update REGRESSION.md with bug learnings (⛔ REQUIRED — pipeline will reject without this)
 If CLAUDE.md exists, append bugs to the "Known Issues & Gotchas" section.
-If REGRESSION.md exists, update any test steps that were incorrect or add new ones for the fixed behavior.
+If REGRESSION.md exists, update any test steps that were incorrect or add new regression test steps for the fixed behavior.
+**Your PR WILL be bounced back if REGRESSION.md is not modified.** This is enforced by an automated artifact gate.
 \`\`\`bash
 cd /tmp/bugfix-work
 git add -A

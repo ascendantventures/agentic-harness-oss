@@ -1,4 +1,15 @@
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
+/** Default retry caps per station. Override via config.json stations[x].maxRetries */
+export const DEFAULT_MAX_RETRIES = {
+    spec: 5,
+    design: 5,
+    build: 5,
+    qa: 3,
+    bugfix: 3,
+    uat: 3,
+};
+/** Max retries for 0-byte log (env/setup) failures — much lower */
+export const MAX_EMPTY_RETRIES = 2;
 export class BackoffManagerImpl {
     backoffFile;
     log;
@@ -14,8 +25,10 @@ export class BackoffManagerImpl {
             const m = new Map();
             const now = Date.now();
             for (const [k, v] of Object.entries(raw)) {
-                if (v.until > now)
-                    m.set(k, v); // prune expired entries on load
+                // Keep entries that are either still backed off OR have high failure counts
+                // (maxed-out entries need to persist even after backoff expires)
+                if (v.until > now || v.failures >= 2)
+                    m.set(k, v);
             }
             return m;
         }
@@ -45,11 +58,45 @@ export class BackoffManagerImpl {
         }
         return false; // backoff expired
     }
-    recordCrash(key, _fast, _logFile) {
+    /**
+     * Check if a key has exceeded the retry cap for its station.
+     * Also checks the separate empty-run cap (0-byte logs = env/setup failures).
+     */
+    isMaxedOut(key, maxRetries) {
+        const b = this.map.get(key);
+        if (!b)
+            return false;
+        // Check empty-run cap first (stricter)
+        if ((b.emptyRuns ?? 0) >= MAX_EMPTY_RETRIES) {
+            this.log(`🚫 ${key} maxed out on empty runs (${b.emptyRuns}/${MAX_EMPTY_RETRIES}) — shelving`);
+            return true;
+        }
+        // Check total failure cap
+        if (b.failures >= maxRetries) {
+            this.log(`🚫 ${key} maxed out (${b.failures}/${maxRetries} failures) — shelving`);
+            return true;
+        }
+        return false;
+    }
+    recordCrash(key, fast, logFile) {
         const prev = this.map.get(key) ?? { failures: 0, until: 0 };
         const failures = prev.failures + 1;
         const backoffMs = Math.min(failures * 5 * 60000, 30 * 60000);
-        this.map.set(key, { failures, until: Date.now() + backoffMs });
+        // Track empty (0-byte) log runs separately
+        let emptyRuns = prev.emptyRuns ?? 0;
+        if (logFile) {
+            try {
+                const logSize = existsSync(logFile) ? statSync(logFile).size : 0;
+                if (logSize === 0) {
+                    emptyRuns++;
+                }
+            }
+            catch {
+                // Can't stat — treat as empty
+                emptyRuns++;
+            }
+        }
+        this.map.set(key, { failures, until: Date.now() + backoffMs, emptyRuns });
         this.save(this.map);
     }
     clearBackoff(key) {

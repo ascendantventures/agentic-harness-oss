@@ -13,14 +13,6 @@ const TIMEOUT_BY_STATION = {
     build: '3600',
     bugfix: '3600',
 };
-/** Per-station model (when using claude CLI) */
-const MODEL_BY_STATION = {
-    spec: 'claude-sonnet-4-6',
-    qa: 'claude-sonnet-4-6',
-    design: 'claude-opus-4-5',
-    build: 'claude-sonnet-4-6',
-    bugfix: 'claude-sonnet-4-6',
-};
 export function spawnAgent(task, useClaudeCli, buildAgentEnv, getCurrentKey, log) {
     // Write task message to a temp file (avoids shell arg escaping issues)
     try {
@@ -41,7 +33,7 @@ export function spawnAgent(task, useClaudeCli, buildAgentEnv, getCurrentKey, log
     if (useClaudeCli) {
         // ── v2: Claude Code CLI (claude -p) ──────────────────────────────────
         const apiKey = getCurrentKey();
-        const model = MODEL_BY_STATION[task.station] ?? 'claude-sonnet-4-6';
+        const model = task.model ?? 'claude-sonnet-4-6';
         const taskFd = openSync(taskFile, 'r');
         child = spawnProcess(CLAUDE_BIN, [
             '-p',

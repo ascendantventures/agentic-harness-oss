@@ -25,7 +25,7 @@ const PHASE2_CHECKED_FILE = '/tmp/factory-phase2-checked.json';
 /** Build a FactoryContext from RunnerDeps (bridges old deps shape to new context shape). */
 function makeCtx(deps) {
     return {
-        config: {
+        config: deps.config ?? {
             stations: {},
             github: { repo: deps.REPO },
             concurrency: { maxTasksPerRun: deps.MAX_TASKS_PER_RUN },
@@ -400,6 +400,7 @@ export async function tickV2(deps) {
         maxTasksPerRun: deps.MAX_TASKS_PER_RUN,
         useClaudeCli: deps.USE_CLAUDE_CLI,
         isInCrashBackoff: deps.isInCrashBackoff,
+        backoffManager: deps.backoffManager,
         getCurrentKey: deps.getCurrentKey,
         buildAgentEnv: deps.buildAgentEnv,
     };

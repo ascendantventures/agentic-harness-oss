@@ -12,6 +12,7 @@
  */
 import type { LockFile, LockEntry } from '../types/index.js';
 export interface RunnerDeps {
+    config?: import('../types/index.js').Config;
     REPO: string;
     SUPABASE_URL: string;
     SUPABASE_KEY: string;
@@ -45,6 +46,8 @@ export interface RunnerDepsV2 extends RunnerDeps {
     pipelinesConfig: PipelinesConfig;
     /** Fully populated station registry — from StationRegistry.createDefault() */
     registry: import('../stations/registry.js').StationRegistry;
+    /** Backoff manager — for retry cap checks */
+    backoffManager: import('../types/index.js').BackoffManager;
 }
 /**
  * tickV2() — Phase 3 factory loop tick (multi-pipeline).

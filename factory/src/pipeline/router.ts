@@ -16,10 +16,11 @@
 import { getIssuesByLabel } from '../github/issues.js';
 import { spawnAgent } from '../agents/spawn.js';
 import { lockKey } from '../core/locks.js';
+import { DEFAULT_MAX_RETRIES } from '../core/backoff.js';
 import { flipLabel } from './reconciler.js';
 import type { StationRegistry } from '../stations/registry.js';
 import type { FactoryContext } from '../stations/base.js';
-import type { LockManager } from '../types/index.js';
+import type { LockManager, BackoffManager } from '../types/index.js';
 import type { PipelinesConfig } from '../types/pipeline.js';
 import { PipelineDetector } from './detector.js';
 
@@ -45,6 +46,9 @@ export interface PipelineRouterContext extends FactoryContext {
 
   /** Crash backoff check — return true if the key is currently backed off */
   isInCrashBackoff: (key: string) => boolean;
+
+  /** Backoff manager — for retry cap checks */
+  backoffManager: BackoffManager;
 
   /** Current API key for agent spawning */
   getCurrentKey: () => string;
@@ -160,6 +164,14 @@ export class PipelineRouter {
         // Crash backoff
         if (ctx.isInCrashBackoff(key)) {
           ctx.log(`  #${issue.number} in crash backoff for ${station.id}`);
+          continue;
+        }
+
+        // Retry cap — shelve issues that have exceeded max retries
+        const stationMaxRetries = ctx.config.stations[station.id]?.settings?.maxRetries as number | undefined
+          ?? DEFAULT_MAX_RETRIES[station.id] ?? 5;
+        if (ctx.backoffManager.isMaxedOut(key, stationMaxRetries)) {
+          // Don't spawn — LockManager.cleanDeadLocks handles the shelving
           continue;
         }
 

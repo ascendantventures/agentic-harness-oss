@@ -232,10 +232,11 @@ fi
 echo "TypeScript check passed"
 \`\`\`
 
-### 5. Update CLAUDE.md with changes
+### 5. Update CLAUDE.md with changes (⛔ REQUIRED — pipeline will reject your PR without this)
 If CLAUDE.md exists, update the "Known Issues & Gotchas" and "Change Request Notes" sections with anything you learned during this change. If it doesn't exist, create one (follow the template from new builds).
+**Your PR WILL be bounced back if CLAUDE.md is not modified.** This is enforced by an automated artifact gate.
 
-### 6. Update REGRESSION.md (feature test manifest)
+### 6. Update REGRESSION.md (⛔ REQUIRED — pipeline will reject your PR without this)
 \`\`\`bash
 cd /tmp/build-work
 
@@ -534,8 +535,9 @@ fi
 \`\`\`
 **Every build MUST have a GitHub repo.** Deploying only to Vercel from a temp directory is NOT acceptable.
 
-### 9. Generate CLAUDE.md (project memory for future agents)
+### 9. Generate CLAUDE.md (⛔ REQUIRED — pipeline will reject your PR without this)
 Create a \`CLAUDE.md\` file in the repo root that captures everything a future agent needs to know about this project. This is critical for Change Request builds — the next agent will read this first.
+**Your PR WILL be bounced back if CLAUDE.md is not in the diff.** This is enforced by an automated artifact gate.
 
 \`\`\`bash
 cat > CLAUDE.md << 'CLAUDE_EOF'
@@ -582,9 +584,10 @@ CLAUDE_EOF
 
 **IMPORTANT:** Replace all placeholders with actual values from your build. Be specific and detailed — this file is the project's memory.
 
-### 10. Update REGRESSION.md (feature test manifest — MANDATORY)
+### 10. Update REGRESSION.md (⛔ REQUIRED — pipeline will reject your PR without this)
 
 REGRESSION.md is the living test manifest. Every feature gets test steps here. QA and UAT agents test EVERYTHING on this list — not just new features.
+**Your PR WILL be bounced back if REGRESSION.md is not in the diff.** This is enforced by an automated artifact gate.
 
 \`\`\`bash
 cd /tmp/build-work

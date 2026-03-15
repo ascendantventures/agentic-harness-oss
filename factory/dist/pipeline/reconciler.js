@@ -7,6 +7,78 @@
  * 3. Periodic sweep: Scans all open issues every N ticks — catches anything layers 1-2 missed
  */
 import { execSync } from 'child_process';
+import { recordStationTransition } from '../notify/supabase.js';
+const ARTIFACT_GATES = {
+    build: [
+        { file: 'REGRESSION.md', required: true, message: 'REGRESSION.md must be updated with test steps for new behavior' },
+        { file: 'CLAUDE.md', required: true, message: 'CLAUDE.md must be updated with architecture notes and key decisions' },
+        { file: 'DECISIONS.md', required: false, message: 'Consider updating DECISIONS.md if architectural choices were made' },
+    ],
+    bugfix: [
+        { file: 'REGRESSION.md', required: true, message: 'REGRESSION.md must be updated with regression test steps for this fix' },
+    ],
+};
+/**
+ * Check if a PR's diff includes modifications to required artifact files.
+ * Returns { pass: true } if all required artifacts are present,
+ * or { pass: false, missing: string[] } with human-readable failure reasons.
+ */
+export function checkArtifactGate(issueNumber, station, repo, buildRepo, log) {
+    const rules = ARTIFACT_GATES[station];
+    if (!rules || rules.length === 0)
+        return { pass: true, missing: [], warnings: [] };
+    const branchName = `feature/issue-${issueNumber}`;
+    // Get the list of files changed in the PR
+    let changedFiles = [];
+    try {
+        const filesOutput = execSync(`gh pr view "${branchName}" --repo ${buildRepo} --json files --jq '[.files[].path]'`, { encoding: 'utf8', timeout: 15000 }).trim();
+        changedFiles = JSON.parse(filesOutput);
+    }
+    catch (e) {
+        // If PR doesn't exist or can't be read, skip the gate (don't block)
+        log(`  ⚠️ Artifact gate: could not read PR files for #${issueNumber}: ${e.message?.slice(0, 80)}`);
+        return { pass: true, missing: [], warnings: [] };
+    }
+    const missing = [];
+    const warnings = [];
+    for (const rule of rules) {
+        const found = changedFiles.some(f => f.endsWith(rule.file) || f.includes(rule.file));
+        if (!found) {
+            if (rule.required) {
+                missing.push(rule.message);
+            }
+            else {
+                warnings.push(rule.message);
+            }
+        }
+    }
+    // Log warnings (non-blocking)
+    for (const w of warnings) {
+        log(`  ⚠️ Artifact gate warning #${issueNumber}: ${w}`);
+    }
+    return { pass: missing.length === 0, missing, warnings };
+}
+/**
+ * Post an artifact gate failure comment on the issue and bounce back to the station.
+ */
+function bounceForArtifactGate(issueNumber, station, repo, stageLabel, missing, log) {
+    const body = [
+        `## ⛔ Artifact Gate Failed`,
+        ``,
+        `The ${station} agent completed work but did not update required files:`,
+        ``,
+        ...missing.map(m => `- ${m}`),
+        ``,
+        `Bouncing back to \`${stageLabel}\` for the agent to fix. The next ${station} agent will see this comment and update the missing files.`,
+    ].join('\n');
+    try {
+        execSync(`gh issue comment ${issueNumber} --repo ${repo} --body ${JSON.stringify(body)}`, { encoding: 'utf8', timeout: 15000 });
+        log(`⛔ Artifact gate failed for #${issueNumber}: ${missing.join('; ')}`);
+    }
+    catch (e) {
+        log(`⚠️ Failed to post artifact gate comment on #${issueNumber}: ${e.message?.slice(0, 80)}`);
+    }
+}
 // ── Stage → artifact detection patterns ─────────────────────────────────────
 const STAGE_ARTIFACTS = {
     spec: /## (SPEC|Specification|Requirements)/i,
@@ -62,6 +134,12 @@ export function flipLabel(issueNumber, repo, currentLabel, nextLabel, log, reaso
         const removeArgs = stationLabels.map(l => `--remove-label "${l}"`).join(' ');
         execSync(`gh issue edit ${issueNumber} --repo ${repo} ${removeArgs} --add-label "${nextLabel}"`, { encoding: 'utf8', timeout: 15000 });
         log(`🔄 Auto-advanced #${issueNumber}: ${currentLabel} → ${nextLabel} (${reason})`);
+        // Record station transition to dash_station_history (non-blocking)
+        const supabaseUrl = process.env.SUPABASE_URL ?? process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+        const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
+        const fromStation = currentLabel.replace('station:', '');
+        const toStation = nextLabel.replace('station:', '');
+        recordStationTransition(issueNumber, toStation, fromStation, supabaseUrl, supabaseKey, log).catch(() => { });
         return true;
     }
     catch (e) {
@@ -97,19 +175,51 @@ export function reconcileAfterExit(issueNumber, station, repo, pipelinesConfig, 
     try {
         const labelsJson = execSync(`gh issue view ${issueNumber} --repo ${repo} --json labels --jq '[.labels[].name]'`, { encoding: 'utf8', timeout: 15000 }).trim();
         const labels = JSON.parse(labelsJson);
-        if (labels.includes(stage.label)) {
-            // Label hasn't been flipped — check if work artifact exists
+        // Label may be at stage.label (pre-spawn-flip) or stage.nextLabel (post-spawn-flip).
+        // Both mean the agent was working this stage.
+        const atInputLabel = labels.includes(stage.label);
+        const atOutputLabel = stage.nextLabel ? labels.includes(stage.nextLabel) : false;
+        if (atInputLabel || atOutputLabel) {
+            // Check if work artifact exists
             const comments = execSync(`gh issue view ${issueNumber} --repo ${repo} --comments --json comments --jq '[.comments[].body]'`, { encoding: 'utf8', timeout: 15000 }).trim();
             const artifactPattern = STAGE_ARTIFACTS[station];
             const hasArtifact = artifactPattern ? artifactPattern.test(comments) : true;
             if (hasArtifact) {
-                flipLabel(issueNumber, repo, stage.label, stage.nextLabel, log, `post-exit reconciliation: ${station} agent completed`);
+                // ── Artifact gate check (BUILD/BUGFIX only) ──
+                if (ARTIFACT_GATES[station]) {
+                    // Determine the build repo (may differ from the pipeline repo)
+                    let buildRepo = repo;
+                    try {
+                        const bodyJson = execSync(`gh issue view ${issueNumber} --repo ${repo} --json body --jq '.body'`, { encoding: 'utf8', timeout: 15000 }).trim();
+                        const buildRepoMatch = bodyJson.match(/BUILD_REPO[:\s]+([^\s\n]+)/i)
+                            || bodyJson.match(/github\.com\/([^/\s]+\/[^/\s]+)/);
+                        if (buildRepoMatch) {
+                            buildRepo = buildRepoMatch[1];
+                        }
+                    }
+                    catch { }
+                    const gateResult = checkArtifactGate(issueNumber, station, repo, buildRepo, log);
+                    if (!gateResult.pass) {
+                        // Bounce back to input label
+                        const bounceFrom = atOutputLabel ? stage.nextLabel : stage.label;
+                        bounceForArtifactGate(issueNumber, station, repo, bounceFrom, gateResult.missing, log);
+                        return;
+                    }
+                }
+                if (atInputLabel) {
+                    // Label hasn't been flipped yet — advance it
+                    flipLabel(issueNumber, repo, stage.label, stage.nextLabel, log, `post-exit reconciliation: ${station} agent completed`);
+                }
+                else {
+                    // Label already at nextLabel (spawn-time flip) — no label change needed
+                    log(`  #${issueNumber}: ${station} agent completed, label already at ${stage.nextLabel}`);
+                }
             }
             else {
                 log(`  #${issueNumber}: ${station} agent exited but no work artifact found — label unchanged`);
             }
         }
-        // else: label already advanced, nothing to do
+        // else: label already advanced past this stage, nothing to do
     }
     catch (e) {
         log(`  Reconciliation check failed for #${issueNumber}: ${e.message?.slice(0, 100)}`);
@@ -186,6 +296,15 @@ export function maybeSweep(repo, pipelinesConfig, log) {
             try {
                 const comments = execSync(`gh issue view ${issue.number} --repo ${repo} --comments --json comments --jq '[.comments[].body]'`, { encoding: 'utf8', timeout: 15000 }).trim();
                 if (artifactPattern.test(comments)) {
+                    // Artifact gate check for sweep too
+                    if (ARTIFACT_GATES[stage.stationId]) {
+                        const gateResult = checkArtifactGate(issue.number, stage.stationId, repo, repo, log);
+                        if (!gateResult.pass) {
+                            bounceForArtifactGate(issue.number, stage.stationId, repo, currentLabel, gateResult.missing, log);
+                            reconciled++;
+                            continue;
+                        }
+                    }
                     flipLabel(issue.number, repo, currentLabel, stage.nextLabel, log, 'periodic sweep');
                     reconciled++;
                 }

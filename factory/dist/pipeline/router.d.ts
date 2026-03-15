@@ -14,7 +14,7 @@
  */
 import type { StationRegistry } from '../stations/registry.js';
 import type { FactoryContext } from '../stations/base.js';
-import type { LockManager } from '../types/index.js';
+import type { LockManager, BackoffManager } from '../types/index.js';
 import type { PipelinesConfig } from '../types/pipeline.js';
 /**
  * Full context needed by the PipelineRouter.
@@ -32,6 +32,8 @@ export interface PipelineRouterContext extends FactoryContext {
     useClaudeCli: boolean;
     /** Crash backoff check — return true if the key is currently backed off */
     isInCrashBackoff: (key: string) => boolean;
+    /** Backoff manager — for retry cap checks */
+    backoffManager: BackoffManager;
     /** Current API key for agent spawning */
     getCurrentKey: () => string;
     /** Build environment vars for agent spawn */

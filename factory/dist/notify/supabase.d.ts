@@ -19,4 +19,10 @@ export declare function isClientApproved(issue: {
  * Called once per loop tick so the dashboard can show live status.
  */
 export declare function upsertHarnessHeartbeat(supabaseUrl: string, serviceRoleKey: string, pid: number, activeAgents: number, lockSnapshot: Record<string, unknown>, log: (msg: string) => void): Promise<void>;
+/**
+ * Write a station transition row to dash_station_history.
+ * Called on every station label flip by the factory harness.
+ * Each transition is a new row (no conflict key — always insert).
+ */
+export declare function recordStationTransition(issueNumber: number, newStation: string, previousStation: string | null, supabaseUrl: string, serviceRoleKey: string, log: (msg: string) => void, actor?: 'harness' | 'human' | 'agent'): Promise<void>;
 //# sourceMappingURL=supabase.d.ts.map
