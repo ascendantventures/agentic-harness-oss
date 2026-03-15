@@ -220,8 +220,10 @@ export class PipelineRouter {
         );
 
         // Flip label at spawn time so the dashboard reflects "in progress"
-        // The agent prompt may also flip the label — that's a harmless no-op.
-        if (stage.nextLabel) {
+        // Only for stations where the output artifact is NOT checked by a guard
+        // (spec/design have guards that revert if artifacts are missing)
+        const noFlipStations = ['spec', 'design'];
+        if (stage.nextLabel && !noFlipStations.includes(station.id)) {
           flipLabel(issue.number, ctx.env.repo, stage.label, stage.nextLabel, ctx.log,
             `spawn-time flip: ${station.id} agent started`);
         }

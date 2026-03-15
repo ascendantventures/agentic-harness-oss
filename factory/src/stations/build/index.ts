@@ -127,12 +127,20 @@ export class BuildStation extends BaseStation {
       }
     }
 
-    // 4. Design comment check — if missing, revert label so Design agent can run
+    // 4. Design comment check — if missing, check if design agent is actively running
     const designDone = hasDesignComment(issue.number, ctx.env.repo);
     if (!designDone) {
+      // If a design agent is currently locked (actively working), just skip — don't revert
+      try {
+        const lockData = JSON.parse(require('fs').readFileSync('/tmp/factory-loop.lock', 'utf8'));
+        const designLockKey = `${issue.number}-design`;
+        if (lockData[designLockKey]) {
+          return { process: false, reason: 'DESIGN.md not yet posted — design agent actively running' };
+        }
+      } catch { /* no lock file = no active design agent */ }
       this.designAction = { action: 'respawn-design', issueNumber: issue.number };
-      // Auto-revert: issue reached station:design without a DESIGN.md (e.g., manual label flip
-      // or approval flow that skipped the Design agent). Move back to station:spec.
+      // Auto-revert: issue reached station:design without a DESIGN.md and no design agent running
+      // (e.g., manual label flip or design agent crashed without producing output)
       guardAutoAdvance(
         issue.number, ctx.env.repo, 'station:design', 'station:spec', ctx.log,
         'DESIGN.md missing — reverting to station:spec for Design agent',
