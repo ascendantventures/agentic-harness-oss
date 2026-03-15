@@ -306,3 +306,47 @@ export async function upsertHarnessHeartbeat(
     log(`[heartbeat] non-blocking error: ${e.message}`);
   }
 }
+
+/**
+ * Write a station transition row to dash_station_history.
+ * Called on every station label flip by the factory harness.
+ * Each transition is a new row (no conflict key — always insert).
+ */
+export async function recordStationTransition(
+  issueNumber: number,
+  newStation: string,
+  previousStation: string | null,
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  log: (msg: string) => void,
+  actor: 'harness' | 'human' | 'agent' = 'harness',
+): Promise<void> {
+  if (!supabaseUrl || !serviceRoleKey) return;
+  try {
+    const headers = {
+      ...makeSupabaseHeaders(serviceRoleKey),
+      'Content-Type': 'application/json',
+      Prefer: 'return=minimal',
+    };
+    const body = JSON.stringify({
+      issue_number: issueNumber,
+      station: newStation,
+      from_station: previousStation ?? null,
+      transitioned_at: new Date().toISOString(),
+      actor,
+    });
+    const res = await fetch(`${supabaseUrl}/rest/v1/dash_station_history`, {
+      method: 'POST',
+      headers,
+      body,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      log(`[station-history] insert failed ${res.status}: ${text}`);
+    } else {
+      log(`[station-history] recorded #${issueNumber}: ${previousStation ?? 'null'} → ${newStation} (${actor})`);
+    }
+  } catch (e: any) {
+    log(`[station-history] non-blocking error: ${e.message}`);
+  }
+}

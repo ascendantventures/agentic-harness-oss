@@ -16,6 +16,7 @@
 import { getIssuesByLabel } from '../github/issues.js';
 import { spawnAgent } from '../agents/spawn.js';
 import { lockKey } from '../core/locks.js';
+import { flipLabel } from './reconciler.js';
 import type { StationRegistry } from '../stations/registry.js';
 import type { FactoryContext } from '../stations/base.js';
 import type { LockManager } from '../types/index.js';
@@ -180,18 +181,24 @@ export class PipelineRouter {
         let task;
         try {
           task = await station.buildTask(issue as any, ctx);
+          
+          // Resolve model: stage override > station config > error
+          const stationConfig = ctx.config.stations[station.id];
+          const effectiveModel = stage.model ?? stationConfig?.model;
+          
+          if (!effectiveModel) {
+            ctx.log(`  #${issue.number}: ERROR — no model configured for station "${station.id}"`);
+            continue;
+          }
+          
+          task.model = effectiveModel;
         } catch (e: any) {
           ctx.log(`  #${issue.number} buildTask threw: ${e.message}`);
           continue;
         }
 
-        // Apply stage model override (if set in pipelines.json)
-        if (stage.model) {
-          task = { ...task, model: stage.model };
-        }
-
         // Spawn the agent
-        ctx.log(`  Spawning ${station.id.toUpperCase()} agent for #${issue.number}: ${issue.title}`);
+        ctx.log(`  Spawning ${station.id.toUpperCase()} agent for #${issue.number}: ${issue.title} [model: ${task.model}]`);
         const handle = spawnAgent(
           task,
           ctx.useClaudeCli,
@@ -199,6 +206,13 @@ export class PipelineRouter {
           ctx.getCurrentKey,
           ctx.log,
         );
+
+        // Flip label at spawn time so the dashboard reflects "in progress"
+        // The agent prompt may also flip the label — that's a harmless no-op.
+        if (stage.nextLabel) {
+          flipLabel(issue.number, ctx.env.repo, stage.label, stage.nextLabel, ctx.log,
+            `spawn-time flip: ${station.id} agent started`);
+        }
 
         // Acquire lock
         ctx.locks.setLock(key, {
