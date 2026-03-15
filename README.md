@@ -163,6 +163,14 @@ This will launch a beautiful interactive terminal UI that will walk you through 
 6. Offer to queue your first test issue (a "Todo App") automatically.
 7. Offer to start the factory loop (`npm run dev`) immediately.
 
+To reset your configuration and start fresh:
+
+```bash
+npm run setup:reset
+```
+
+This backs up your existing `.env` and `factory/config.json` (as `.bak` files) before re-running setup.
+
 ### 3. Manual Execution (Optional)
 
 If you chose not to start the loop or queue the issue during the interactive setup, you can do so manually:
