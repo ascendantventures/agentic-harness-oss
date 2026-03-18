@@ -1,5 +1,5 @@
 /**
- * QAStation — processes issues at 'station:build', produces 'station:qa'.
+ * QAStation — processes issues at 'station:provisioned', produces 'station:qa'.
  *
  * Ported from makeQATask() in factory-loop.js.
  *
@@ -8,12 +8,13 @@
  *   2. Manifest check
  *   3. Internal issues signal auto-pass (runner handles label flip)
  *   4. hasBuildMovedSinceLastQA (skip if no new commits since last QA failure)
+ *   5. Live URL pre-flight: HTTP GET must return 200 before agent is spawned
  */
 
 import { execSync } from 'child_process';
 import type { Issue, AgentTask } from '../../types/index.js';
 import { BaseStation, type FactoryContext, type ShouldProcessResult } from '../base.js';
-import { guardAutoAdvance } from '../../pipeline/reconciler.js';
+import { guardAutoAdvance, flipLabel } from '../../pipeline/reconciler.js';
 
 // ─── QA stall-guard helpers (exported for use in runner + index barrel) ───────
 
@@ -143,7 +144,83 @@ export class QAStation extends BaseStation {
       ctx.log(`QA re-queuing for #${issue.number} — build repo has new commits since last QA failure`);
     }
 
+    // 5. Live URL pre-flight: fetch live_url from Supabase, require HTTP 200
+    if (!issue.isInternal) {
+      const liveUrl = await this.fetchLiveUrl(issue.number, ctx);
+      if (!liveUrl) {
+        ctx.log(`QA pre-flight #${issue.number}: no live_url in Supabase — flipping to stuck`);
+        flipLabel(issue.number, ctx.env.repo, 'station:provisioned', 'station:stuck', ctx.log, 'QA pre-flight: no live_url set — provision may have skipped Vercel injection');
+        this.commentFailure(issue.number, ctx, 'QA pre-flight failed: no `live_url` found in Supabase for this submission. Provision station may not have injected Vercel env vars. Operator action required.');
+        return { process: false, reason: 'No live_url in Supabase — flipped to stuck' };
+      }
+
+      const httpStatus = await this.checkLiveUrl(liveUrl, ctx);
+      if (httpStatus !== 200) {
+        ctx.log(`QA pre-flight #${issue.number}: ${liveUrl} returned HTTP ${httpStatus} — bouncing to bugfix`);
+        flipLabel(issue.number, ctx.env.repo, 'station:provisioned', 'station:bugfix', ctx.log, `QA pre-flight: live URL returned HTTP ${httpStatus}`);
+        try {
+          execSync(
+            `gh issue comment ${issue.number} --repo ${ctx.env.repo} --body "## ❌ QA Pre-flight Failed\n\nLive URL health check failed before QA agent was spawned.\n\n- **URL:** \`${liveUrl}\`\n- **HTTP Status:** ${httpStatus}\n\nApp is not responding correctly at deploy time. Moving to \`station:bugfix\` for repair.\n\n_This check prevents wasting a full QA run on a broken deploy._"`,
+            { encoding: 'utf8', timeout: 15000 },
+          );
+        } catch {}
+        return { process: false, reason: `Live URL pre-flight failed: HTTP ${httpStatus}` };
+      }
+
+      ctx.log(`QA pre-flight #${issue.number}: ${liveUrl} → HTTP ${httpStatus} ✅`);
+    }
+
     return { process: true };
+  }
+
+  /** Fetch live_url from Supabase submissions table for this issue */
+  private async fetchLiveUrl(issueNumber: number, ctx: FactoryContext): Promise<string | null> {
+    try {
+      const res = await fetch(
+        `${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issueNumber}&select=live_url&limit=1`,
+        {
+          headers: {
+            apikey: ctx.env.supabaseKey,
+            Authorization: `Bearer ${ctx.env.supabaseKey}`,
+          },
+        },
+      );
+      if (!res.ok) return null;
+      const rows = await res.json() as Array<{ live_url?: string }>;
+      return rows[0]?.live_url ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** HTTP GET the live URL; returns status code or 0 on network error */
+  private async checkLiveUrl(url: string, ctx: FactoryContext): Promise<number> {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const res = await fetch(url, {
+        method: 'GET',
+        redirect: 'follow',
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      ctx.log(`QA pre-flight: GET ${url} → ${res.status}`);
+      return res.status;
+    } catch (e: any) {
+      ctx.log(`QA pre-flight: GET ${url} → network error (${e.message})`);
+      return 0;
+    }
+  }
+
+  /** Post a failure comment (reuses provision's pattern) */
+  private commentFailure(issueNumber: number, ctx: FactoryContext, reason: string): void {
+    try {
+      const body = `## ❌ QA Pre-flight Failed\n\n${reason}`;
+      execSync(
+        `gh issue comment ${issueNumber} --repo ${ctx.env.repo} --body ${JSON.stringify(body)}`,
+        { encoding: 'utf8', timeout: 15000 },
+      );
+    } catch {}
   }
 
   async buildTask(issue: Issue, ctx: FactoryContext): Promise<AgentTask> {

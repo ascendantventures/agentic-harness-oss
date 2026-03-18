@@ -141,13 +141,20 @@ export class ProvisionStation extends BaseStation {
       const vercelProjectName = buildRepo.split('/')[1];
       if (vercelToken) {
         log(`Injecting env vars into Vercel project: ${vercelProjectName}...`);
-        await this.injectVercelEnvVars(vercelToken, vercelProjectName, keys, log);
+        try {
+          await this.injectVercelEnvVars(vercelToken, vercelProjectName, keys, log);
+        } catch (vercelErr: any) {
+          log(`ERROR: Vercel env injection failed — ${vercelErr.message}`);
+          flipLabel(issue.number, ctx.env.repo, 'station:build', 'station:stuck', ctx.log, `Provision: Vercel project not found or env injection failed`);
+          this.commentFailure(issue.number, ctx, `Vercel env injection failed: ${vercelErr.message}\n\nSupabase project was created (${project.id}) but env vars were not injected into Vercel. Operator action required.`);
+          return false;
+        }
 
         // 8. Trigger Vercel redeploy
         log('Triggering Vercel redeploy...');
         await this.triggerRedeploy(vercelToken, vercelProjectName, log);
       } else {
-        log('No VERCEL_TOKEN — skipping Vercel env injection');
+        log('No VERCEL_TOKEN — skipping Vercel env injection (app will have no DB connection)');
       }
 
       // 9. Comment success on GitHub issue
@@ -331,8 +338,8 @@ export class ProvisionStation extends BaseStation {
     } catch {}
 
     if (!projectId) {
-      log('Could not find Vercel project — skipping env injection');
-      return;
+      log(`ERROR: Could not find Vercel project '${projectName}' — env vars NOT injected`);
+      throw new Error(`Vercel project '${projectName}' not found. Env vars not injected — app will have no DB connection.`);
     }
 
     const envVars = [
