@@ -321,6 +321,109 @@ fi
 If REGRESSION.md exists, you MUST test EVERY feature listed — not just the new ones.
 This is the full regression suite. Any failure = QA FAIL.
 
+═══ STEP 3c: PLAYWRIGHT SMOKE SUITE ═══
+
+Run automated smoke tests BEFORE any manual QA. This catches broken deploys fast.
+
+\`\`\`bash
+# Install Playwright if not present (one-time, ~30s)
+if ! command -v npx &>/dev/null; then npm install -g npx 2>/dev/null || true; fi
+if ! npx playwright --version &>/dev/null 2>&1; then
+  npm install -g playwright @playwright/test 2>/dev/null || true
+  npx playwright install chromium --with-deps 2>/dev/null || true
+fi
+
+# Write smoke test file
+mkdir -p /tmp/smoke-${issue.number}
+cat > /tmp/smoke-${issue.number}/smoke.spec.ts << 'PLAYWRIGHT_EOF'
+import { test, expect } from '@playwright/test';
+const BASE_URL = process.env.SMOKE_URL || 'http://localhost:3000';
+test.use({ baseURL: BASE_URL });
+
+test('home page loads without 5xx', async ({ page }) => {
+  const response = await page.goto('/');
+  expect(response?.status()).toBeLessThan(500);
+  const bodyText = await page.textContent('body');
+  expect(bodyText).not.toMatch(/Application error|Internal Server Error|Hydration error/i);
+});
+
+test('no hydration errors in console', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  const hydrationErrors = consoleErrors.filter(e => /hydrat|minified react error|text content does not match/i.test(e));
+  expect(hydrationErrors, 'Hydration errors: ' + hydrationErrors.join(', ')).toHaveLength(0);
+});
+
+test('auth/login page accessible', async ({ page }) => {
+  const response = await page.goto('/auth/login');
+  expect([200, 301, 302, 307, 308]).toContain(response?.status() ?? 200);
+  const bodyText = await page.textContent('body');
+  expect(bodyText).not.toMatch(/Application error|Internal Server Error/i);
+});
+
+test('static assets load (no 404 cascade)', async ({ page }) => {
+  const failed: string[] = [];
+  page.on('requestfailed', (req) => { if (req.url().match(/\.(js|css|woff2?)$/)) failed.push(req.url()); });
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  expect(failed, 'Failed static assets: ' + failed.join(', ')).toHaveLength(0);
+});
+
+test('no 5xx API calls on page load', async ({ page }) => {
+  const apiFails: string[] = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/api/') && res.status() >= 500) apiFails.push(res.url() + ' -> ' + res.status());
+  });
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  expect(apiFails, 'API 5xx on load: ' + apiFails.join(', ')).toHaveLength(0);
+});
+PLAYWRIGHT_EOF
+
+cat > /tmp/smoke-${issue.number}/playwright.config.ts << 'CONFIG_EOF'
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
+  testDir: '.',
+  timeout: 30000,
+  retries: 1,
+  reporter: [['list'], ['json', { outputFile: '/tmp/smoke-${issue.number}/results.json' }]],
+  use: { headless: true, screenshot: 'only-on-failure', video: 'off' },
+  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
+});
+CONFIG_EOF
+
+cd /tmp/smoke-${issue.number}
+SMOKE_URL="$LIVE_URL" npx playwright test smoke.spec.ts --config=playwright.config.ts 2>&1
+SMOKE_EXIT=$?
+SMOKE_FAILED=0
+if [ $SMOKE_EXIT -ne 0 ]; then
+  echo "SMOKE_TESTS_FAILED"
+  SMOKE_FAILED=1
+else
+  echo "SMOKE_TESTS_PASSED"
+fi
+\`\`\`
+
+**If SMOKE_FAILED=1 — stop and bounce to bugfix immediately:**
+
+\`\`\`bash
+if [ "$SMOKE_FAILED" = "1" ]; then
+  gh issue comment ${issue.number} --repo ${ctx.env.repo} --body "## Playwright Smoke Tests Failed
+
+Automated smoke suite failed on \$LIVE_URL before manual QA. Moving to station:bugfix.
+
+Playwright catches: 5xx errors, hydration failures, broken auth page, failed static asset loads, API 500s on page load.
+
+Fix the deploy/runtime issues first, then re-queue for QA."
+
+  gh issue edit ${issue.number} --repo ${ctx.env.repo} \
+    --remove-label "station:provisioned" --remove-label "station:qa" --add-label "station:bugfix"
+  exit 0
+fi
+\`\`\`
+
 ═══ STEP 4: SMOKE TEST ═══
 
 \`\`\`bash

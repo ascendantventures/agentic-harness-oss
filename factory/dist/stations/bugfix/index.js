@@ -35,6 +35,17 @@ export class BugfixStation extends BaseStation {
             model: 'sonnet',
             message: `You are a BUGFIX agent for the factory pipeline.
 
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "bugfix"}' || true
+\`\`\`
+
 ## Your Task
 
 Fix the QA failures for issue #${issue.number}.
@@ -63,7 +74,7 @@ For each FAIL:
 - Implement the fix
 - Note the change made
 
-### 4. TypeScript check (HARD STOP on errors)
+### 4. TypeScript check + Vercel build (HARD STOP on errors)
 \`\`\`bash
 npm install
 TSC_OUT=$(npx tsc --noEmit --skipLibCheck 2>&1)
@@ -74,6 +85,17 @@ if [ $TSC_EXIT -ne 0 ]; then
   exit 1
 fi
 echo "✅ TypeScript OK"
+
+# Vercel build — generates .vercel/output for --prebuilt deploy (skips remote build step)
+vercel pull --yes --environment=production 2>&1 | tail -5
+BUILD_OUT=$(vercel build 2>&1)
+BUILD_EXIT=$?
+echo "$BUILD_OUT" | tail -30
+if [ $BUILD_EXIT -ne 0 ]; then
+  echo "❌ Vercel build FAILED — fix all errors before pushing"
+  exit 1
+fi
+echo "✅ Vercel build passed — .vercel/output ready"
 \`\`\`
 
 ### 5. Update REGRESSION.md with bug learnings (⛔ REQUIRED — pipeline will reject without this)
@@ -86,10 +108,9 @@ git add -A
 git commit -m "bugfix(#${issue.number}): fix QA failures"
 git push origin "$BRANCH_NAME"
 
-# Redeploy preview (not production — still on feature branch)
-vercel --yes 2>&1 | tail -5
-PREVIEW_URL=$(vercel list 2>/dev/null | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
-echo "Preview redeployed: $PREVIEW_URL"
+# Deploy prebuilt artifacts — skips Vercel remote build (already built above)
+LIVE_URL=$(vercel deploy --prebuilt --prod 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
+echo "Live redeployed: $LIVE_URL"
 \`\`\`
 
 ### 6. Post BUGFIX COMPLETE comment + flip label

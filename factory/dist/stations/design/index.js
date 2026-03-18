@@ -89,6 +89,17 @@ Your DESIGN.md should focus ONLY on the changes requested — NOT a full redesig
 ${changeRequestPreamble}
 Your job: produce a DESIGN.md so detailed and precise that the BUILD agent has zero design decisions to make. Every color, every font, every spacing value, every component state — all defined. The goal is quality so good the client doesn't even think about rejecting it.
 
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "design"}' || true
+\`\`\`
+
 ## Step 1 — Read the SPEC
 
 \`\`\`bash
@@ -374,6 +385,18 @@ curl -s -X PATCH \\
   -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \\
   -H "Content-Type: application/json" \\
   -d '{"station": "design"}'
+
+# Notify chat thread
+SUBMISSION_ID=$(curl -s \\
+  "${SUPABASE_URL}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}&select=id" \\
+  -H "apikey: ${SUPABASE_SERVICE_KEY}" \\
+  -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" | jq -r '.[0].id // empty')
+if [ -n "$SUBMISSION_ID" ]; then
+  curl -s -X POST "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+    -H "Content-Type: application/json" \\
+    -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+    -d '{"type":"status_update","content":"Design complete — build starting now.","payload":{"station":"design","issueNumber":${issue.number}}}' 2>/dev/null || true
+fi
 \`\`\`
 
 ⚠️ STOP after Step 5. Do NOT flip to station:build — BUILD owns that transition.

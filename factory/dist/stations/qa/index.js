@@ -1,5 +1,5 @@
 /**
- * QAStation — processes issues at 'station:build', produces 'station:qa'.
+ * QAStation — processes issues at 'station:provisioned', produces 'station:qa'.
  *
  * Ported from makeQATask() in factory-loop.js.
  *
@@ -8,9 +8,11 @@
  *   2. Manifest check
  *   3. Internal issues signal auto-pass (runner handles label flip)
  *   4. hasBuildMovedSinceLastQA (skip if no new commits since last QA failure)
+ *   5. Live URL pre-flight: HTTP GET must return 200 before agent is spawned
  */
 import { execSync } from 'child_process';
 import { BaseStation } from '../base.js';
+import { flipLabel } from '../../pipeline/reconciler.js';
 /** Find the last QA comment and whether it was a FAIL. Also extracts build repo URL. */
 export function getLastQAInfo(issueNumber, repo, log) {
     try {
@@ -109,7 +111,73 @@ export class QAStation extends BaseStation {
             }
             ctx.log(`QA re-queuing for #${issue.number} — build repo has new commits since last QA failure`);
         }
+        // 5. Live URL pre-flight: fetch live_url from Supabase, require HTTP 200
+        if (!issue.isInternal) {
+            const liveUrl = await this.fetchLiveUrl(issue.number, ctx);
+            if (!liveUrl) {
+                ctx.log(`QA pre-flight #${issue.number}: no live_url in Supabase — flipping to stuck`);
+                flipLabel(issue.number, ctx.env.repo, 'station:provisioned', 'station:stuck', ctx.log, 'QA pre-flight: no live_url set — provision may have skipped Vercel injection');
+                this.commentFailure(issue.number, ctx, 'QA pre-flight failed: no `live_url` found in Supabase for this submission. Provision station may not have injected Vercel env vars. Operator action required.');
+                return { process: false, reason: 'No live_url in Supabase — flipped to stuck' };
+            }
+            const httpStatus = await this.checkLiveUrl(liveUrl, ctx);
+            if (httpStatus !== 200) {
+                ctx.log(`QA pre-flight #${issue.number}: ${liveUrl} returned HTTP ${httpStatus} — bouncing to bugfix`);
+                flipLabel(issue.number, ctx.env.repo, 'station:provisioned', 'station:bugfix', ctx.log, `QA pre-flight: live URL returned HTTP ${httpStatus}`);
+                try {
+                    execSync(`gh issue comment ${issue.number} --repo ${ctx.env.repo} --body "## ❌ QA Pre-flight Failed\n\nLive URL health check failed before QA agent was spawned.\n\n- **URL:** \`${liveUrl}\`\n- **HTTP Status:** ${httpStatus}\n\nApp is not responding correctly at deploy time. Moving to \`station:bugfix\` for repair.\n\n_This check prevents wasting a full QA run on a broken deploy._"`, { encoding: 'utf8', timeout: 15000 });
+                }
+                catch { }
+                return { process: false, reason: `Live URL pre-flight failed: HTTP ${httpStatus}` };
+            }
+            ctx.log(`QA pre-flight #${issue.number}: ${liveUrl} → HTTP ${httpStatus} ✅`);
+        }
         return { process: true };
+    }
+    /** Fetch live_url from Supabase submissions table for this issue */
+    async fetchLiveUrl(issueNumber, ctx) {
+        try {
+            const res = await fetch(`${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issueNumber}&select=live_url&limit=1`, {
+                headers: {
+                    apikey: ctx.env.supabaseKey,
+                    Authorization: `Bearer ${ctx.env.supabaseKey}`,
+                },
+            });
+            if (!res.ok)
+                return null;
+            const rows = await res.json();
+            return rows[0]?.live_url ?? null;
+        }
+        catch {
+            return null;
+        }
+    }
+    /** HTTP GET the live URL; returns status code or 0 on network error */
+    async checkLiveUrl(url, ctx) {
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 15000);
+            const res = await fetch(url, {
+                method: 'GET',
+                redirect: 'follow',
+                signal: controller.signal,
+            });
+            clearTimeout(timer);
+            ctx.log(`QA pre-flight: GET ${url} → ${res.status}`);
+            return res.status;
+        }
+        catch (e) {
+            ctx.log(`QA pre-flight: GET ${url} → network error (${e.message})`);
+            return 0;
+        }
+    }
+    /** Post a failure comment (reuses provision's pattern) */
+    commentFailure(issueNumber, ctx, reason) {
+        try {
+            const body = `## ❌ QA Pre-flight Failed\n\n${reason}`;
+            execSync(`gh issue comment ${issueNumber} --repo ${ctx.env.repo} --body ${JSON.stringify(body)}`, { encoding: 'utf8', timeout: 15000 });
+        }
+        catch { }
     }
     async buildTask(issue, ctx) {
         const SUPABASE_URL = ctx.env.supabaseUrl;
@@ -122,6 +190,17 @@ export class QAStation extends BaseStation {
             model: 'haiku',
             message: `You are a QA agent for the factory pipeline.
 **Goal: Review the PR diff + smoke test the preview deploy in under 15 minutes. Fast pass/fail.**
+
+═══ STEP 0: MARK STATION ACTIVE ═══
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "qa"}' || true
+\`\`\`
 
 ═══ STEP 1: GET PR AND PREVIEW URL ═══
 
@@ -196,6 +275,109 @@ fi
 
 If REGRESSION.md exists, you MUST test EVERY feature listed — not just the new ones.
 This is the full regression suite. Any failure = QA FAIL.
+
+═══ STEP 3c: PLAYWRIGHT SMOKE SUITE ═══
+
+Run automated smoke tests BEFORE any manual QA. This catches broken deploys fast.
+
+\`\`\`bash
+# Install Playwright if not present (one-time, ~30s)
+if ! command -v npx &>/dev/null; then npm install -g npx 2>/dev/null || true; fi
+if ! npx playwright --version &>/dev/null 2>&1; then
+  npm install -g playwright @playwright/test 2>/dev/null || true
+  npx playwright install chromium --with-deps 2>/dev/null || true
+fi
+
+# Write smoke test file
+mkdir -p /tmp/smoke-${issue.number}
+cat > /tmp/smoke-${issue.number}/smoke.spec.ts << 'PLAYWRIGHT_EOF'
+import { test, expect } from '@playwright/test';
+const BASE_URL = process.env.SMOKE_URL || 'http://localhost:3000';
+test.use({ baseURL: BASE_URL });
+
+test('home page loads without 5xx', async ({ page }) => {
+  const response = await page.goto('/');
+  expect(response?.status()).toBeLessThan(500);
+  const bodyText = await page.textContent('body');
+  expect(bodyText).not.toMatch(/Application error|Internal Server Error|Hydration error/i);
+});
+
+test('no hydration errors in console', async ({ page }) => {
+  const consoleErrors: string[] = [];
+  page.on('console', (msg) => { if (msg.type() === 'error') consoleErrors.push(msg.text()); });
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  const hydrationErrors = consoleErrors.filter(e => /hydrat|minified react error|text content does not match/i.test(e));
+  expect(hydrationErrors, 'Hydration errors: ' + hydrationErrors.join(', ')).toHaveLength(0);
+});
+
+test('auth/login page accessible', async ({ page }) => {
+  const response = await page.goto('/auth/login');
+  expect([200, 301, 302, 307, 308]).toContain(response?.status() ?? 200);
+  const bodyText = await page.textContent('body');
+  expect(bodyText).not.toMatch(/Application error|Internal Server Error/i);
+});
+
+test('static assets load (no 404 cascade)', async ({ page }) => {
+  const failed: string[] = [];
+  page.on('requestfailed', (req) => { if (req.url().match(/\.(js|css|woff2?)$/)) failed.push(req.url()); });
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  expect(failed, 'Failed static assets: ' + failed.join(', ')).toHaveLength(0);
+});
+
+test('no 5xx API calls on page load', async ({ page }) => {
+  const apiFails: string[] = [];
+  page.on('response', (res) => {
+    if (res.url().includes('/api/') && res.status() >= 500) apiFails.push(res.url() + ' -> ' + res.status());
+  });
+  await page.goto('/');
+  await page.waitForLoadState('networkidle');
+  expect(apiFails, 'API 5xx on load: ' + apiFails.join(', ')).toHaveLength(0);
+});
+PLAYWRIGHT_EOF
+
+cat > /tmp/smoke-${issue.number}/playwright.config.ts << 'CONFIG_EOF'
+import { defineConfig } from '@playwright/test';
+export default defineConfig({
+  testDir: '.',
+  timeout: 30000,
+  retries: 1,
+  reporter: [['list'], ['json', { outputFile: '/tmp/smoke-${issue.number}/results.json' }]],
+  use: { headless: true, screenshot: 'only-on-failure', video: 'off' },
+  projects: [{ name: 'chromium', use: { browserName: 'chromium' } }],
+});
+CONFIG_EOF
+
+cd /tmp/smoke-${issue.number}
+SMOKE_URL="$LIVE_URL" npx playwright test smoke.spec.ts --config=playwright.config.ts 2>&1
+SMOKE_EXIT=$?
+SMOKE_FAILED=0
+if [ $SMOKE_EXIT -ne 0 ]; then
+  echo "SMOKE_TESTS_FAILED"
+  SMOKE_FAILED=1
+else
+  echo "SMOKE_TESTS_PASSED"
+fi
+\`\`\`
+
+**If SMOKE_FAILED=1 — stop and bounce to bugfix immediately:**
+
+\`\`\`bash
+if [ "$SMOKE_FAILED" = "1" ]; then
+  gh issue comment ${issue.number} --repo ${ctx.env.repo} --body "## Playwright Smoke Tests Failed
+
+Automated smoke suite failed on \$LIVE_URL before manual QA. Moving to station:bugfix.
+
+Playwright catches: 5xx errors, hydration failures, broken auth page, failed static asset loads, API 500s on page load.
+
+Fix the deploy/runtime issues first, then re-queue for QA."
+
+  gh issue edit ${issue.number} --repo ${ctx.env.repo} \
+    --remove-label "station:provisioned" --remove-label "station:qa" --add-label "station:bugfix"
+  exit 0
+fi
+\`\`\`
 
 ═══ STEP 4: SMOKE TEST ═══
 

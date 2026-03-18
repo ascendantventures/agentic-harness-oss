@@ -3,6 +3,7 @@
  *
  * Ported from makeSpecTask() in factory-loop.js.
  */
+import { execSync } from 'child_process';
 import { BaseStation } from '../base.js';
 import { getSubmissionForIssue } from '../../notify/supabase.js';
 export class SpecStation extends BaseStation {
@@ -21,7 +22,58 @@ export class SpecStation extends BaseStation {
         const manifest = this.manifestCheck(issue, ctx.env);
         if (manifest)
             return manifest;
+        // 3. Manifest content validator (for external/customer issues only)
+        if (!issue.isInternal && !issue.isChangeRequest && issue.manifest) {
+            const validation = this.validateManifest(issue, ctx);
+            if (validation)
+                return validation;
+        }
         return { process: true };
+    }
+    /** Deep-validate manifest fields: required strings non-empty, business/problem min length */
+    validateManifest(issue, ctx) {
+        const m = issue.manifest;
+        const errors = [];
+        if (!m.business || m.business.trim().length < 10) {
+            errors.push('`business` field missing or too short (<10 chars) — unclear what the business does');
+        }
+        if (!m.problem || m.problem.trim().length < 10) {
+            errors.push('`problem` field missing or too short (<10 chars) — unclear what problem is being solved');
+        }
+        if (m.tech_stack !== undefined) {
+            const stack = Array.isArray(m.tech_stack) ? m.tech_stack : [m.tech_stack];
+            if (stack.length === 0 || stack.every((s) => !s || s.trim().length === 0)) {
+                errors.push('`tech_stack` is empty — must include at least one technology');
+            }
+        }
+        if (errors.length === 0)
+            return null;
+        // Post a comment explaining the rejection and flip back to intake
+        const body = `## ❌ Manifest Validation Failed
+
+This issue was rejected before spec generation because the manifest is incomplete or malformed.
+
+**Errors:**
+${errors.map((e) => `- ${e}`).join('\n')}
+
+**Required manifest fields:**
+\`\`\`json
+{
+  "business": "<description of what the business does — min 10 chars>",
+  "problem": "<specific problem being solved — min 10 chars>",
+  "tech_stack": ["Next.js", "Supabase"]  // optional but recommended
+}
+\`\`\`
+
+Please update the issue body with a complete manifest block and re-add \`station:intake\` to re-queue.`;
+        try {
+            execSync(`gh issue comment ${issue.number} --repo ${ctx.env.repo} --body ${JSON.stringify(body)}`, { encoding: 'utf8', timeout: 15000 });
+            execSync(`gh issue edit ${issue.number} --repo ${ctx.env.repo} --remove-label "station:intake"`, { encoding: 'utf8', timeout: 15000 });
+        }
+        catch (e) {
+            ctx.log(`Manifest validation comment failed: ${e.message}`);
+        }
+        return { process: false, reason: `Manifest validation failed: ${errors.join('; ')}` };
     }
     async buildTask(issue, ctx) {
         // Fetch submission to check for attached docs
@@ -60,6 +112,17 @@ Use the attached documents as the PRIMARY requirements source. Only infer or ask
             issueTitle: issue.title,
             model: 'haiku',
             message: `You are a SPEC agent for the factory pipeline.
+
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "spec"}' || true
+\`\`\`
 
 ${docFetchSteps}
 
@@ -183,10 +246,27 @@ SUBMISSION_ID=$(curl -s \\
 if [ -n "$SUBMISSION_ID" ]; then
   # Use jq to safely build JSON — shell interpolation breaks on special chars in spec content
   SPEC_SUMMARY=$(head -5 /tmp/spec-issue-${issue.number}.md 2>/dev/null | tr '\\n' ' ')
-  FACTORY_SECRET=$(grep FACTORY_SECRET ~/.bashrc | cut -d= -f2)
+  # Extract Phase 1 features: lines under "## Phase 1" heading that start with a bullet/dash
+  PHASE1_FEATURES=$(python3 -c "
+import sys, json
+lines = open('/tmp/spec-issue-${issue.number}.md').readlines() if __import__('os').path.exists('/tmp/spec-issue-${issue.number}.md') else []
+in_phase1 = False
+features = []
+for line in lines:
+    l = line.strip()
+    if l.lower().startswith('## phase 1') or l.lower().startswith('# phase 1'):
+        in_phase1 = True
+        continue
+    if in_phase1 and l.startswith('##'):
+        break
+    if in_phase1 and (l.startswith('- ') or l.startswith('* ')):
+        features.append(l.lstrip('-* ').strip())
+print(json.dumps(features))
+" 2>/dev/null || echo '[]')
   PUSH_PAYLOAD=$(jq -n \\
     --arg summary "$SPEC_SUMMARY" \\
     --arg sid "$SUBMISSION_ID" \\
+    --argjson features "$PHASE1_FEATURES" \\
     '{
       type: "spec_card",
       content: "Your spec is ready — review and approve to start building.",
@@ -194,7 +274,7 @@ if [ -n "$SUBMISSION_ID" ]; then
         type: "spec_card",
         station: "spec",
         specSummary: $summary,
-        phase1Features: [],
+        phase1Features: $features,
         phase2Features: [],
         prerequisites: [],
         submissionId: $sid,
@@ -203,7 +283,7 @@ if [ -n "$SUBMISSION_ID" ]; then
     }')
   curl -s -X POST "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
     -H "Content-Type: application/json" \\
-    -H "x-factory-secret: $FACTORY_SECRET" \\
+    -H "x-factory-secret: ${ctx.env.factorySecret}" \\
     -d "$PUSH_PAYLOAD"
   echo "✓ Pushed spec_ready card to thread $SUBMISSION_ID"
 fi

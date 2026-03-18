@@ -4,6 +4,7 @@
  * Ported from makeSpecTask() in factory-loop.js.
  */
 
+import { execSync } from 'child_process';
 import type { Issue, AgentTask } from '../../types/index.js';
 import { BaseStation, type FactoryContext, type ShouldProcessResult } from '../base.js';
 import { getSubmissionForIssue } from '../../notify/supabase.js';
@@ -25,7 +26,68 @@ export class SpecStation extends BaseStation {
     const manifest = this.manifestCheck(issue, ctx.env);
     if (manifest) return manifest;
 
+    // 3. Manifest content validator (for external/customer issues only)
+    if (!issue.isInternal && !issue.isChangeRequest && issue.manifest) {
+      const validation = this.validateManifest(issue, ctx);
+      if (validation) return validation;
+    }
+
     return { process: true };
+  }
+
+  /** Deep-validate manifest fields: required strings non-empty, business/problem min length */
+  private validateManifest(issue: Issue, ctx: FactoryContext): ShouldProcessResult | null {
+    const m = issue.manifest!;
+    const errors: string[] = [];
+
+    if (!m.business || m.business.trim().length < 10) {
+      errors.push('`business` field missing or too short (<10 chars) — unclear what the business does');
+    }
+    if (!m.problem || m.problem.trim().length < 10) {
+      errors.push('`problem` field missing or too short (<10 chars) — unclear what problem is being solved');
+    }
+    if (m.tech_stack !== undefined) {
+      const stack = Array.isArray(m.tech_stack) ? m.tech_stack : [m.tech_stack];
+      if (stack.length === 0 || stack.every((s) => !s || s.trim().length === 0)) {
+        errors.push('`tech_stack` is empty — must include at least one technology');
+      }
+    }
+
+    if (errors.length === 0) return null;
+
+    // Post a comment explaining the rejection and flip back to intake
+    const body = `## ❌ Manifest Validation Failed
+
+This issue was rejected before spec generation because the manifest is incomplete or malformed.
+
+**Errors:**
+${errors.map((e) => `- ${e}`).join('\n')}
+
+**Required manifest fields:**
+\`\`\`json
+{
+  "business": "<description of what the business does — min 10 chars>",
+  "problem": "<specific problem being solved — min 10 chars>",
+  "tech_stack": ["Next.js", "Supabase"]  // optional but recommended
+}
+\`\`\`
+
+Please update the issue body with a complete manifest block and re-add \`station:intake\` to re-queue.`;
+
+    try {
+      execSync(
+        `gh issue comment ${issue.number} --repo ${ctx.env.repo} --body ${JSON.stringify(body)}`,
+        { encoding: 'utf8', timeout: 15000 },
+      );
+      execSync(
+        `gh issue edit ${issue.number} --repo ${ctx.env.repo} --remove-label "station:intake"`,
+        { encoding: 'utf8', timeout: 15000 },
+      );
+    } catch (e: any) {
+      ctx.log(`Manifest validation comment failed: ${e.message}`);
+    }
+
+    return { process: false, reason: `Manifest validation failed: ${errors.join('; ')}` };
   }
 
   async buildTask(issue: Issue, ctx: FactoryContext): Promise<AgentTask> {

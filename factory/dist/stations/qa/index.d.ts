@@ -1,5 +1,5 @@
 /**
- * QAStation — processes issues at 'station:build', produces 'station:qa'.
+ * QAStation — processes issues at 'station:provisioned', produces 'station:qa'.
  *
  * Ported from makeQATask() in factory-loop.js.
  *
@@ -8,6 +8,7 @@
  *   2. Manifest check
  *   3. Internal issues signal auto-pass (runner handles label flip)
  *   4. hasBuildMovedSinceLastQA (skip if no new commits since last QA failure)
+ *   5. Live URL pre-flight: HTTP GET must return 200 before agent is spawned
  */
 import type { Issue, AgentTask } from '../../types/index.js';
 import { BaseStation, type FactoryContext, type ShouldProcessResult } from '../base.js';
@@ -30,6 +31,12 @@ export declare class QAStation extends BaseStation {
     /** Set when shouldProcess returns false due to build not moving — used by runner for stall tracking. */
     lastQAInfo?: QAInfo;
     shouldProcess(issue: Issue, ctx: FactoryContext): Promise<ShouldProcessResult>;
+    /** Fetch live_url from Supabase submissions table for this issue */
+    private fetchLiveUrl;
+    /** HTTP GET the live URL; returns status code or 0 on network error */
+    private checkLiveUrl;
+    /** Post a failure comment (reuses provision's pattern) */
+    private commentFailure;
     buildTask(issue: Issue, ctx: FactoryContext): Promise<AgentTask>;
 }
 //# sourceMappingURL=index.d.ts.map

@@ -157,6 +157,17 @@ export class BuildStation extends BaseStation {
 This is a CHANGE REQUEST on an existing live project. Do NOT scaffold from a template.
 Clone the existing build repo and apply the requested changes.
 
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "build"}' || true
+\`\`\`
+
 ## Steps
 
 ### 1. Read the change request spec
@@ -178,6 +189,8 @@ CLONE_URL=$(curl -s -X POST ${ctx.env.factoryAppUrl}/api/github/clone-token \\
 
 git clone "$CLONE_URL" /tmp/build-work
 cd /tmp/build-work
+git config user.email "ajrrac@gmail.com"
+git config user.name "Abe Reyes"
 git remote set-url origin "$CLONE_URL"
 BRANCH_NAME="feature/issue-${issue.number}"
 git checkout -b "$BRANCH_NAME"
@@ -218,9 +231,11 @@ grep -rl "$(echo '${issue.title}' | tr ' ' '\\n' | grep -E '^[A-Z]' | head -3 | 
 - Follow the DESIGN.md spec if available
 - REUSE existing components where possible — check before creating new ones
 
-### 4b. TypeScript gate (HARD STOP)
+### 4b. TypeScript check + Vercel build (HARD STOP)
 \`\`\`bash
 npm install
+
+# TypeScript check first (fast feedback)
 TSC_OUT=$(npx tsc --noEmit --skipLibCheck 2>&1)
 TSC_EXIT=$?
 echo "$TSC_OUT" | head -20
@@ -229,6 +244,17 @@ if [ $TSC_EXIT -ne 0 ]; then
   exit 1
 fi
 echo "TypeScript check passed"
+
+# Pull Vercel env vars and build locally (generates .vercel/output for --prebuilt deploy)
+vercel pull --yes --environment=production 2>&1 | tail -5
+BUILD_OUT=$(vercel build 2>&1)
+BUILD_EXIT=$?
+echo "$BUILD_OUT" | tail -30
+if [ $BUILD_EXIT -ne 0 ]; then
+  echo "Vercel build FAILED — fix all build errors before deploying"
+  exit 1
+fi
+echo "Vercel build passed — .vercel/output ready"
 \`\`\`
 
 ### 5. Update CLAUDE.md with changes (⛔ REQUIRED — pipeline will reject your PR without this)
@@ -284,7 +310,7 @@ PR_URL=$(gh pr create \\
 
 ### Testing
 - TypeScript: ✅ passes
-- Vercel preview: deployed automatically
+- Vercel: deployed to production
 
 ---
 *Automated PR from Factory Pipeline. QA and UAT will review before merge.*" 2>&1)
@@ -292,25 +318,14 @@ echo "PR created: $PR_URL"
 PR_NUMBER=$(echo "$PR_URL" | grep -oP '\\d+$')
 \`\`\`
 
-### 7. Wait for Vercel preview deployment
-Vercel auto-deploys PRs with preview URLs. Wait for it:
+### 7. Deploy prebuilt artifacts to Vercel (skips remote build)
 \`\`\`bash
-echo "Waiting for Vercel preview deployment..."
-sleep 30
-# Get preview URL from PR deployments or Vercel
-PREVIEW_URL=$(gh pr view "$PR_NUMBER" --repo ${buildRepo} --json comments --jq '.comments[-1].body' 2>/dev/null | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
-if [ -z "$PREVIEW_URL" ]; then
-  # Fallback: check Vercel deployments for the branch
-  PREVIEW_URL=$(vercel list 2>/dev/null | grep "$BRANCH_NAME\\|issue-${issue.number}" | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
-fi
-if [ -z "$PREVIEW_URL" ]; then
-  # Last fallback: deploy preview manually
-  PREVIEW_URL=$(vercel --yes 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
-fi
-echo "Preview URL: $PREVIEW_URL"
+# Upload .vercel/output directly — Vercel skips its own build step (already built in step 4b)
+LIVE_URL=$(vercel deploy --prebuilt --prod 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
+echo "Live URL: $LIVE_URL"
 
 # Health check the preview
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PREVIEW_URL" --max-time 20)
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL" --max-time 20)
 echo "Preview HTTP status: $HTTP_STATUS"
 \`\`\`
 
@@ -319,13 +334,23 @@ echo "Preview HTTP status: $HTTP_STATUS"
 gh issue comment ${issue.number} --repo ${ctx.env.repo} --body "## BUILD COMPLETE (Change Request)
 
 **PR:** $PR_URL
-**Preview URL:** $PREVIEW_URL
+**Live URL:** $LIVE_URL
 **Build repo:** https://github.com/${buildRepo}
 **Branch:** $BRANCH_NAME
 **Changes:** ${issue.title}
 
 _PR will be auto-merged after QA and UAT approval._"
 gh issue edit ${issue.number} --repo ${ctx.env.repo} --remove-label "station:design" --add-label "station:build"
+curl -s -X PATCH \\
+  "${SUPABASE_URL}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${SUPABASE_SERVICE_KEY}" \\
+  -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \\
+  -H "Content-Type: application/json" \\
+  -d \'{"station":"build"}\'
+curl -s -X POST "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d \'{"type":"status_update","content":"Build complete — PR ready for QA review.","payload":{"station":"build","issueNumber":${issue.number}}}\' 2>/dev/null || true
 \`\`\`
 
 ## Critical rules
@@ -354,6 +379,17 @@ gh issue edit ${issue.number} --repo ${ctx.env.repo} --remove-label "station:des
 
 This is an INTERNAL feature issue. Do NOT use a template. Clone the main repo, create a feature branch, implement, open a PR.
 
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "build"}' || true
+\`\`\`
+
 ## Steps
 
 ### 1. Read the spec
@@ -370,6 +406,8 @@ CLONE_URL=$(curl -s -X POST ${ctx.env.factoryAppUrl}/api/github/clone-token \\
 
 git clone "$CLONE_URL" /tmp/build-work
 cd /tmp/build-work
+git config user.email "ajrrac@gmail.com"
+git config user.name "Abe Reyes"
 git remote set-url origin "$CLONE_URL"
 git checkout -b ${branchName}
 \`\`\`
@@ -415,6 +453,14 @@ Review the PR, then merge to ship to production."
 
 gh issue edit ${issue.number} --repo ${ctx.env.repo} \\
   --remove-label "station:design" --add-label "station:build"
+SUPA_URL="${ctx.env.supabaseUrl}"
+SUPA_KEY="${ctx.env.supabaseKey}"
+curl -s -X PATCH \\
+  "$SUPA_URL/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: $SUPA_KEY" \\
+  -H "Authorization: Bearer $SUPA_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station":"build"}'
 \`\`\`
 
 ## Critical rules
@@ -441,6 +487,17 @@ gh issue edit ${issue.number} --repo ${ctx.env.repo} \\
 Read GitHub issue #${issue.number} from repo ${ctx.env.repo} (with comments).
 The issue has a SPEC comment. Build the full application using the template system.
 
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "build"}' || true
+\`\`\`
+
 ## Template to use
 - Template: \`${template.repo}\`
 - Deploy target: ${template.deployTarget}
@@ -451,6 +508,16 @@ The issue has a SPEC comment. Build the full application using the template syst
 ### 1. Read the spec
 \`\`\`bash
 gh issue view ${issue.number} --repo ${ctx.env.repo} --comments
+\`\`\`
+
+### 1b. Open build monitor card in chat
+\`\`\`bash
+SUBMISSION_ID="${submissionId}"
+BUILD_MONITOR_RESP=$(curl -s -X POST "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d '{"type":"build_monitor","content":"","payload":{"type":"build_monitor","status":"building","station":"build","progress":5,"eta_minutes":8,"elapsed_seconds":0,"activities":[]}}')
+BUILD_MONITOR_ID=$(echo "$BUILD_MONITOR_RESP" | jq -r '.message.message_id // empty')
 \`\`\`
 
 ### 2. Set up build repo (seeded from template)
@@ -469,11 +536,18 @@ BUILD_REPO=$(echo $SETUP | jq -r .buildRepo)
 
 git clone "$BUILD_CLONE_URL" /tmp/build-work
 cd /tmp/build-work
+git config user.email "ajrrac@gmail.com"
+git config user.name "Abe Reyes"
 \`\`\`
 
 ### 3. Run the customize script with manifest values from the spec
 \`\`\`bash
 node scripts/customize.js --manifest='{"name":"PROJECT_NAME","description":"PROJECT_DESC","primaryColor":"#E86F2C"}'
+# Update build monitor: template customized
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":10,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Template customized\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ### 4. Extract DESIGN.md from the issue (PRIMARY UI REFERENCE)
@@ -483,6 +557,11 @@ gh issue view ${issue.number} --repo ${ctx.env.repo} --comments \\
   | grep -A 2000 "Design Philosophy" | head -500 > /tmp/design-issue-${issue.number}.md
 wc -l /tmp/design-issue-${issue.number}.md
 cat /tmp/design-issue-${issue.number}.md
+# Update build monitor: design loaded
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":15,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Template customized\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Design spec loaded\"}]}}" 2>/dev/null || true
 \`\`\`
 
 **DESIGN.md is your PRIMARY UI reference.** Zero design decisions left to you.
@@ -496,6 +575,11 @@ gh issue view ${issue.number} --repo ${ctx.env.repo} --comments \\
 cd /tmp/build-work
 cp /tmp/migration-${issue.number}.sql supabase/migrations/$(date +%Y%m%d%H%M%S)_spec_schema.sql
 supabase db push --linked
+# Update build monitor: migrations applied
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":20,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Template customized\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Design spec loaded\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Database migrations applied\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ### 6. Read Impeccable design skill (MANDATORY for all UI work)
@@ -508,11 +592,24 @@ If not installed: \`npx skills install pbakaus/impeccable@frontend-design\`
 
 ### 7. Implement all spec requirements on top of the template
 
+Before starting implementation, update the build monitor:
+\`\`\`bash
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":25,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Template customized\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Design spec loaded\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Database migrations applied\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Implementing features...\"}]}}" 2>/dev/null || true
+\`\`\`
+
 Build every feature described in the spec. Follow the DESIGN.md for all visual decisions. Apply Impeccable design principles throughout.
 
 ### 7. Install deps + TypeScript gate (HARD STOP on errors)
 \`\`\`bash
 npm install
+# Update build monitor: installing deps
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":30,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Dependencies installed\"}]}}" 2>/dev/null || true
 TSC_OUT=$(npx tsc --noEmit --skipLibCheck 2>&1)
 TSC_EXIT=$?
 echo "$TSC_OUT" | head -30
@@ -521,6 +618,26 @@ if [ $TSC_EXIT -ne 0 ]; then
   exit 1
 fi
 echo "TypeScript check passed"
+
+# Vercel build gate — pulls env vars + builds locally, generates .vercel/output for --prebuilt deploy
+echo "Running vercel build..."
+vercel pull --yes --environment=production 2>&1 | tail -5
+BUILD_OUT=$(vercel build 2>&1)
+BUILD_EXIT=$?
+echo "$BUILD_OUT" | tail -30
+if [ $BUILD_EXIT -ne 0 ]; then
+  echo "Vercel build FAILED — fix all build errors before deploying"
+  echo "Build output:"
+  echo "$BUILD_OUT" | tail -50
+  exit 1
+fi
+echo "Vercel build passed — .vercel/output ready"
+
+# Update build monitor: TSC + build passed
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":55,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Dependencies installed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"TypeScript check passed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Vercel build passed — artifacts ready\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ### 8. Ensure code is in a GitHub repo (MANDATORY)
@@ -638,9 +755,9 @@ git add -A
 git commit -m "feat(#${issue.number}): ${issue.title}"
 git push origin "$BRANCH_NAME"
 
-# Deploy preview (not production — PR-based flow)
-PREVIEW_URL=$(vercel --yes 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
-echo "Preview URL: $PREVIEW_URL"
+# Deploy prebuilt artifacts — skips Vercel remote build (already built above)
+LIVE_URL=$(vercel deploy --prebuilt --prod 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
+echo "Live URL: $LIVE_URL"
 
 # Open PR against main
 PR_URL=$(gh pr create \\
@@ -652,7 +769,7 @@ PR_URL=$(gh pr create \\
 
 **Source:** ${ctx.env.repo}#${issue.number}
 **Template:** ${template.repo}
-**Preview:** $PREVIEW_URL
+**Live URL:** $LIVE_URL
 
 ### What was built
 - [List key features implemented from spec]
@@ -665,8 +782,14 @@ PR_URL=$(gh pr create \\
 echo "PR created: $PR_URL"
 PR_NUMBER=$(echo "$PR_URL" | grep -oP '\\d+$')
 
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PREVIEW_URL" --max-time 20)
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL" --max-time 20)
 echo "Preview HTTP status: $HTTP_STATUS"
+
+# Update build monitor: deployed + PR open
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":85,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Dependencies installed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"TypeScript check passed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Deployed to Vercel (prod): $LIVE_URL\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"PR opened: $PR_URL\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ### 11. Post BUILD COMPLETE comment + flip label
@@ -674,13 +797,23 @@ echo "Preview HTTP status: $HTTP_STATUS"
 gh issue comment ${issue.number} --repo ${ctx.env.repo} --body "## BUILD COMPLETE
 
 **PR:** $PR_URL
-**Preview URL:** $PREVIEW_URL
+**Live URL:** $LIVE_URL
 **Build repo:** https://github.com/$BUILD_REPO
 **Branch:** $BRANCH_NAME
 **Template:** ${template.repo}
 
 _PR will be auto-merged after QA and UAT approval._"
 gh issue edit ${issue.number} --repo ${ctx.env.repo} --remove-label "station:design" --add-label "station:build"
+curl -s -X PATCH \\
+  "${SUPABASE_URL}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${SUPABASE_SERVICE_KEY}" \\
+  -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \\
+  -H "Content-Type: application/json" \\
+  -d \'{"station":"build"}\'
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"complete\",\"station\":\"build\",\"progress\":100,\"live_url\":\"$LIVE_URL\",\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Build complete — PR ready for QA review\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ## Critical rules

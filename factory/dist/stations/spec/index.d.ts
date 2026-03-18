@@ -13,6 +13,8 @@ export declare class SpecStation extends BaseStation {
     readonly concurrency = 3;
     readonly ttl = 1800000;
     shouldProcess(issue: Issue, ctx: FactoryContext): Promise<ShouldProcessResult>;
+    /** Deep-validate manifest fields: required strings non-empty, business/problem min length */
+    private validateManifest;
     buildTask(issue: Issue, ctx: FactoryContext): Promise<AgentTask>;
 }
 //# sourceMappingURL=index.d.ts.map

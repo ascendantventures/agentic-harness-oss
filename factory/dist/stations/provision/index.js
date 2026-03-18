@@ -57,9 +57,10 @@ export class ProvisionStation extends BaseStation {
             // 1. Determine project name from build repo
             const buildRepo = this.extractBuildRepo(issue, ctx);
             if (!buildRepo) {
-                log('No build repo found in issue comments — skipping provisioning');
-                flipLabel(issue.number, ctx.env.repo, 'station:build', 'station:provisioned', ctx.log, 'Provision: no build repo, advancing to QA');
-                return true;
+                log('ERROR: No build repo found in issue comments — cannot provision without DB');
+                flipLabel(issue.number, ctx.env.repo, 'station:build', 'station:stuck', ctx.log, 'Provision: no build repo found in comments — cannot provision');
+                this.commentFailure(issue.number, ctx, 'No build repo URL found in issue comments. The build agent may not have posted a completion comment. Operator action required.');
+                return false;
             }
             log(`Build repo: ${buildRepo}`);
             // 2. Check if Supabase project already exists for this issue
@@ -110,13 +111,21 @@ export class ProvisionStation extends BaseStation {
             const vercelProjectName = buildRepo.split('/')[1];
             if (vercelToken) {
                 log(`Injecting env vars into Vercel project: ${vercelProjectName}...`);
-                await this.injectVercelEnvVars(vercelToken, vercelProjectName, keys, log);
+                try {
+                    await this.injectVercelEnvVars(vercelToken, vercelProjectName, keys, log);
+                }
+                catch (vercelErr) {
+                    log(`ERROR: Vercel env injection failed — ${vercelErr.message}`);
+                    flipLabel(issue.number, ctx.env.repo, 'station:build', 'station:stuck', ctx.log, `Provision: Vercel project not found or env injection failed`);
+                    this.commentFailure(issue.number, ctx, `Vercel env injection failed: ${vercelErr.message}\n\nSupabase project was created (${project.id}) but env vars were not injected into Vercel. Operator action required.`);
+                    return false;
+                }
                 // 8. Trigger Vercel redeploy
                 log('Triggering Vercel redeploy...');
                 await this.triggerRedeploy(vercelToken, vercelProjectName, log);
             }
             else {
-                log('No VERCEL_TOKEN — skipping Vercel env injection');
+                log('No VERCEL_TOKEN — skipping Vercel env injection (app will have no DB connection)');
             }
             // 9. Comment success on GitHub issue
             const liveUrl = `https://${vercelProjectName}.vercel.app`;
@@ -182,7 +191,7 @@ export class ProvisionStation extends BaseStation {
         }
     }
     async waitForActive(token, projectId, log) {
-        const maxAttempts = 24; // 2 min at 5s intervals
+        const maxAttempts = 120; // 10 min at 5s intervals (Supabase cold starts can take 3–8 min)
         for (let i = 0; i < maxAttempts; i++) {
             await this.sleep(5000);
             try {
@@ -286,8 +295,8 @@ export class ProvisionStation extends BaseStation {
         }
         catch { }
         if (!projectId) {
-            log('Could not find Vercel project — skipping env injection');
-            return;
+            log(`ERROR: Could not find Vercel project '${projectName}' — env vars NOT injected`);
+            throw new Error(`Vercel project '${projectName}' not found. Env vars not injected — app will have no DB connection.`);
         }
         const envVars = [
             { key: 'NEXT_PUBLIC_SUPABASE_URL', value: keys.supabaseUrl },
