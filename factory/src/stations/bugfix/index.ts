@@ -93,7 +93,7 @@ fi
 echo "✅ TypeScript OK"
 
 # Vercel build — generates .vercel/output for --prebuilt deploy (skips remote build step)
-vercel pull --yes --environment=preview 2>&1 | tail -5
+vercel pull --yes --environment=production 2>&1 | tail -5
 BUILD_OUT=$(vercel build 2>&1)
 BUILD_EXIT=$?
 echo "$BUILD_OUT" | tail -30
@@ -115,8 +115,8 @@ git commit -m "bugfix(#${issue.number}): fix QA failures"
 git push origin "$BRANCH_NAME"
 
 # Deploy prebuilt artifacts — skips Vercel remote build (already built above)
-PREVIEW_URL=$(vercel deploy --prebuilt 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
-echo "Preview redeployed: $PREVIEW_URL"
+LIVE_URL=$(vercel deploy --prebuilt --prod 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
+echo "Live redeployed: $LIVE_URL"
 \`\`\`
 
 ### 6. Post BUGFIX COMPLETE comment + flip label

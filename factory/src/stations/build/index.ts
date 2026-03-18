@@ -290,7 +290,7 @@ fi
 echo "TypeScript check passed"
 
 # Pull Vercel env vars and build locally (generates .vercel/output for --prebuilt deploy)
-vercel pull --yes --environment=preview 2>&1 | tail -5
+vercel pull --yes --environment=production 2>&1 | tail -5
 BUILD_OUT=$(vercel build 2>&1)
 BUILD_EXIT=$?
 echo "$BUILD_OUT" | tail -30
@@ -354,7 +354,7 @@ PR_URL=$(gh pr create \\
 
 ### Testing
 - TypeScript: ✅ passes
-- Vercel preview: deployed automatically
+- Vercel: deployed to production
 
 ---
 *Automated PR from Factory Pipeline. QA and UAT will review before merge.*" 2>&1)
@@ -365,11 +365,11 @@ PR_NUMBER=$(echo "$PR_URL" | grep -oP '\\d+$')
 ### 7. Deploy prebuilt artifacts to Vercel (skips remote build)
 \`\`\`bash
 # Upload .vercel/output directly — Vercel skips its own build step (already built in step 4b)
-PREVIEW_URL=$(vercel deploy --prebuilt 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
-echo "Preview URL: $PREVIEW_URL"
+LIVE_URL=$(vercel deploy --prebuilt --prod 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
+echo "Live URL: $LIVE_URL"
 
 # Health check the preview
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PREVIEW_URL" --max-time 20)
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL" --max-time 20)
 echo "Preview HTTP status: $HTTP_STATUS"
 \`\`\`
 
@@ -378,7 +378,7 @@ echo "Preview HTTP status: $HTTP_STATUS"
 gh issue comment ${issue.number} --repo ${ctx.env.repo} --body "## BUILD COMPLETE (Change Request)
 
 **PR:** $PR_URL
-**Preview URL:** $PREVIEW_URL
+**Live URL:** $LIVE_URL
 **Build repo:** https://github.com/${buildRepo}
 **Branch:** $BRANCH_NAME
 **Changes:** ${issue.title}
@@ -683,7 +683,7 @@ echo "TypeScript check passed"
 
 # Vercel build gate — pulls env vars + builds locally, generates .vercel/output for --prebuilt deploy
 echo "Running vercel build..."
-vercel pull --yes --environment=preview 2>&1 | tail -5
+vercel pull --yes --environment=production 2>&1 | tail -5
 BUILD_OUT=$(vercel build 2>&1)
 BUILD_EXIT=$?
 echo "$BUILD_OUT" | tail -30
@@ -818,8 +818,8 @@ git commit -m "feat(#${issue.number}): ${issue.title}"
 git push origin "$BRANCH_NAME"
 
 # Deploy prebuilt artifacts — skips Vercel remote build (already built above)
-PREVIEW_URL=$(vercel deploy --prebuilt 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
-echo "Preview URL: $PREVIEW_URL"
+LIVE_URL=$(vercel deploy --prebuilt --prod 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
+echo "Live URL: $LIVE_URL"
 
 # Open PR against main
 PR_URL=$(gh pr create \\
@@ -831,7 +831,7 @@ PR_URL=$(gh pr create \\
 
 **Source:** ${ctx.env.repo}#${issue.number}
 **Template:** ${template.repo}
-**Preview:** $PREVIEW_URL
+**Live URL:** $LIVE_URL
 
 ### What was built
 - [List key features implemented from spec]
@@ -844,14 +844,14 @@ PR_URL=$(gh pr create \\
 echo "PR created: $PR_URL"
 PR_NUMBER=$(echo "$PR_URL" | grep -oP '\\d+$')
 
-HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PREVIEW_URL" --max-time 20)
+HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$LIVE_URL" --max-time 20)
 echo "Preview HTTP status: $HTTP_STATUS"
 
 # Update build monitor: deployed + PR open
 [ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
   -H "Content-Type: application/json" \\
   -H "x-factory-secret: ${ctx.env.factorySecret}" \\
-  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":85,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Dependencies installed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"TypeScript check passed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Deployed to Vercel: $PREVIEW_URL\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"PR opened: $PR_URL\"}]}}" 2>/dev/null || true
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":85,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Dependencies installed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"TypeScript check passed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Deployed to Vercel (prod): $LIVE_URL\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"PR opened: $PR_URL\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ### 11. Post BUILD COMPLETE comment + flip label
@@ -859,7 +859,7 @@ echo "Preview HTTP status: $HTTP_STATUS"
 gh issue comment ${issue.number} --repo ${ctx.env.repo} --body "## BUILD COMPLETE
 
 **PR:** $PR_URL
-**Preview URL:** $PREVIEW_URL
+**Live URL:** $LIVE_URL
 **Build repo:** https://github.com/$BUILD_REPO
 **Branch:** $BRANCH_NAME
 **Template:** ${template.repo}
@@ -875,7 +875,7 @@ curl -s -X PATCH \\
 [ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
   -H "Content-Type: application/json" \\
   -H "x-factory-secret: ${ctx.env.factorySecret}" \\
-  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"complete\",\"station\":\"build\",\"progress\":100,\"live_url\":\"$PREVIEW_URL\",\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Build complete — PR ready for QA review\"}]}}" 2>/dev/null || true
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"complete\",\"station\":\"build\",\"progress\":100,\"live_url\":\"$LIVE_URL\",\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Build complete — PR ready for QA review\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ## Critical rules
