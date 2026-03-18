@@ -113,9 +113,8 @@ git add -A
 git commit -m "bugfix(#${issue.number}): fix QA failures"
 git push origin "$BRANCH_NAME"
 
-# Redeploy preview (not production — still on feature branch)
-vercel --yes 2>&1 | tail -5
-PREVIEW_URL=$(vercel list 2>/dev/null | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
+# Redeploy via CLI — direct, no preview bot wait
+PREVIEW_URL=$(vercel --yes 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
 echo "Preview redeployed: $PREVIEW_URL"
 \`\`\`
 

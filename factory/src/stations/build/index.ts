@@ -359,21 +359,10 @@ echo "PR created: $PR_URL"
 PR_NUMBER=$(echo "$PR_URL" | grep -oP '\\d+$')
 \`\`\`
 
-### 7. Wait for Vercel preview deployment
-Vercel auto-deploys PRs with preview URLs. Wait for it:
+### 7. Deploy via Vercel CLI (direct, no preview wait)
 \`\`\`bash
-echo "Waiting for Vercel preview deployment..."
-sleep 30
-# Get preview URL from PR deployments or Vercel
-PREVIEW_URL=$(gh pr view "$PR_NUMBER" --repo ${buildRepo} --json comments --jq '.comments[-1].body' 2>/dev/null | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
-if [ -z "$PREVIEW_URL" ]; then
-  # Fallback: check Vercel deployments for the branch
-  PREVIEW_URL=$(vercel list 2>/dev/null | grep "$BRANCH_NAME\\|issue-${issue.number}" | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
-fi
-if [ -z "$PREVIEW_URL" ]; then
-  # Last fallback: deploy preview manually
-  PREVIEW_URL=$(vercel --yes 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
-fi
+# Deploy directly via CLI — faster than waiting for Vercel bot on PR
+PREVIEW_URL=$(vercel --yes 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
 echo "Preview URL: $PREVIEW_URL"
 
 # Health check the preview
