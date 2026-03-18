@@ -275,9 +275,11 @@ grep -rl "$(echo '${issue.title}' | tr ' ' '\\n' | grep -E '^[A-Z]' | head -3 | 
 - Follow the DESIGN.md spec if available
 - REUSE existing components where possible — check before creating new ones
 
-### 4b. TypeScript + production build gate (HARD STOP)
+### 4b. TypeScript check + Vercel build (HARD STOP)
 \`\`\`bash
 npm install
+
+# TypeScript check first (fast feedback)
 TSC_OUT=$(npx tsc --noEmit --skipLibCheck 2>&1)
 TSC_EXIT=$?
 echo "$TSC_OUT" | head -20
@@ -287,15 +289,16 @@ if [ $TSC_EXIT -ne 0 ]; then
 fi
 echo "TypeScript check passed"
 
-# Production build check — catches SSR errors, missing env vars, invalid imports that TSC misses
-BUILD_OUT=$(npm run build 2>&1)
+# Pull Vercel env vars and build locally (generates .vercel/output for --prebuilt deploy)
+vercel pull --yes --environment=preview 2>&1 | tail -5
+BUILD_OUT=$(vercel build 2>&1)
 BUILD_EXIT=$?
 echo "$BUILD_OUT" | tail -30
 if [ $BUILD_EXIT -ne 0 ]; then
-  echo "Production build FAILED — fix all build errors before deploying"
+  echo "Vercel build FAILED — fix all build errors before deploying"
   exit 1
 fi
-echo "Production build passed"
+echo "Vercel build passed — .vercel/output ready"
 \`\`\`
 
 ### 5. Update CLAUDE.md with changes (⛔ REQUIRED — pipeline will reject your PR without this)
@@ -359,10 +362,10 @@ echo "PR created: $PR_URL"
 PR_NUMBER=$(echo "$PR_URL" | grep -oP '\\d+$')
 \`\`\`
 
-### 7. Deploy via Vercel CLI (direct, no preview wait)
+### 7. Deploy prebuilt artifacts to Vercel (skips remote build)
 \`\`\`bash
-# Deploy directly via CLI — faster than waiting for Vercel bot on PR
-PREVIEW_URL=$(vercel --yes 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
+# Upload .vercel/output directly — Vercel skips its own build step (already built in step 4b)
+PREVIEW_URL=$(vercel deploy --prebuilt 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
 echo "Preview URL: $PREVIEW_URL"
 
 # Health check the preview
@@ -678,24 +681,25 @@ if [ $TSC_EXIT -ne 0 ]; then
 fi
 echo "TypeScript check passed"
 
-# Production build gate (HARD STOP — catches what TSC misses: missing env vars, SSR errors, next/image issues, etc.)
-echo "Running production build check..."
-BUILD_OUT=$(npm run build 2>&1)
+# Vercel build gate — pulls env vars + builds locally, generates .vercel/output for --prebuilt deploy
+echo "Running vercel build..."
+vercel pull --yes --environment=preview 2>&1 | tail -5
+BUILD_OUT=$(vercel build 2>&1)
 BUILD_EXIT=$?
 echo "$BUILD_OUT" | tail -30
 if [ $BUILD_EXIT -ne 0 ]; then
-  echo "Production build FAILED — fix all build errors before deploying to Vercel"
+  echo "Vercel build FAILED — fix all build errors before deploying"
   echo "Build output:"
   echo "$BUILD_OUT" | tail -50
   exit 1
 fi
-echo "Production build passed"
+echo "Vercel build passed — .vercel/output ready"
 
 # Update build monitor: TSC + build passed
 [ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
   -H "Content-Type: application/json" \\
   -H "x-factory-secret: ${ctx.env.factorySecret}" \\
-  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":55,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Dependencies installed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"TypeScript check passed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Production build passed\"}]}}" 2>/dev/null || true
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":55,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Dependencies installed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"TypeScript check passed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Vercel build passed — artifacts ready\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ### 8. Ensure code is in a GitHub repo (MANDATORY)
@@ -813,8 +817,8 @@ git add -A
 git commit -m "feat(#${issue.number}): ${issue.title}"
 git push origin "$BRANCH_NAME"
 
-# Deploy preview (not production — PR-based flow)
-PREVIEW_URL=$(vercel --yes 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
+# Deploy prebuilt artifacts — skips Vercel remote build (already built above)
+PREVIEW_URL=$(vercel deploy --prebuilt 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
 echo "Preview URL: $PREVIEW_URL"
 
 # Open PR against main

@@ -80,7 +80,7 @@ For each FAIL:
 - Implement the fix
 - Note the change made
 
-### 4. TypeScript + production build check (HARD STOP on errors)
+### 4. TypeScript check + Vercel build (HARD STOP on errors)
 \`\`\`bash
 npm install
 TSC_OUT=$(npx tsc --noEmit --skipLibCheck 2>&1)
@@ -92,15 +92,16 @@ if [ $TSC_EXIT -ne 0 ]; then
 fi
 echo "✅ TypeScript OK"
 
-# Production build gate — catches what TSC misses (SSR errors, env var issues, etc.)
-BUILD_OUT=$(npm run build 2>&1)
+# Vercel build — generates .vercel/output for --prebuilt deploy (skips remote build step)
+vercel pull --yes --environment=preview 2>&1 | tail -5
+BUILD_OUT=$(vercel build 2>&1)
 BUILD_EXIT=$?
 echo "$BUILD_OUT" | tail -30
 if [ $BUILD_EXIT -ne 0 ]; then
-  echo "❌ Production build FAILED — fix all errors before pushing"
+  echo "❌ Vercel build FAILED — fix all errors before pushing"
   exit 1
 fi
-echo "✅ Production build OK"
+echo "✅ Vercel build passed — .vercel/output ready"
 \`\`\`
 
 ### 5. Update REGRESSION.md with bug learnings (⛔ REQUIRED — pipeline will reject without this)
@@ -113,8 +114,8 @@ git add -A
 git commit -m "bugfix(#${issue.number}): fix QA failures"
 git push origin "$BRANCH_NAME"
 
-# Redeploy via CLI — direct, no preview bot wait
-PREVIEW_URL=$(vercel --yes 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | head -1)
+# Deploy prebuilt artifacts — skips Vercel remote build (already built above)
+PREVIEW_URL=$(vercel deploy --prebuilt 2>&1 | grep -oP 'https://[\\S]+\\.vercel\\.app' | tail -1)
 echo "Preview redeployed: $PREVIEW_URL"
 \`\`\`
 
