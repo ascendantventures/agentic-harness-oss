@@ -80,9 +80,10 @@ export class ProvisionStation extends BaseStation {
       // 1. Determine project name from build repo
       const buildRepo = this.extractBuildRepo(issue, ctx);
       if (!buildRepo) {
-        log('No build repo found in issue comments — skipping provisioning');
-        flipLabel(issue.number, ctx.env.repo, 'station:build', 'station:provisioned', ctx.log, 'Provision: no build repo, advancing to QA');
-        return true;
+        log('ERROR: No build repo found in issue comments — cannot provision without DB');
+        flipLabel(issue.number, ctx.env.repo, 'station:build', 'station:stuck', ctx.log, 'Provision: no build repo found in comments — cannot provision');
+        this.commentFailure(issue.number, ctx, 'No build repo URL found in issue comments. The build agent may not have posted a completion comment. Operator action required.');
+        return false;
       }
 
       log(`Build repo: ${buildRepo}`);
@@ -216,7 +217,7 @@ export class ProvisionStation extends BaseStation {
   }
 
   private async waitForActive(token: string, projectId: string, log: (m: string) => void): Promise<boolean> {
-    const maxAttempts = 24; // 2 min at 5s intervals
+    const maxAttempts = 120; // 10 min at 5s intervals (Supabase cold starts can take 3–8 min)
     for (let i = 0; i < maxAttempts; i++) {
       await this.sleep(5000);
       try {
