@@ -395,7 +395,7 @@ export function maybeSweep(
       if (stationLabels.length > 1) {
         log(`  ⚠️ #${issue.number} has ${stationLabels.length} station labels: ${stationLabels.join(', ')}`);
         // Keep only the most advanced label
-        const stageOrder = ['station:intake', 'station:spec', 'station:design', 'station:build', 'station:qa', 'station:uat', 'station:bugfix', 'station:done'];
+        const stageOrder = ['station:intake', 'station:spec', 'station:design', 'station:build', 'station:provisioned', 'station:qa', 'station:uat', 'station:bugfix', 'station:done'];
         const sorted = stationLabels.sort((a, b) => stageOrder.indexOf(b) - stageOrder.indexOf(a));
         const keep = sorted[0];
         const remove = sorted.slice(1);

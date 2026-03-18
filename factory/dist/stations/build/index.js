@@ -98,14 +98,13 @@ export class BuildStation extends BaseStation {
                 return { process: false, reason: `spec not approved by client yet` };
             }
         }
-        // 4. Design comment check — if missing, revert label so Design agent can run
+        // 4. Design comment check — if missing, skip (design station will handle it)
+        //    Do NOT revert the label here — that creates a race with the design station
+        //    which also processes station:design issues. The periodic sweep (Layer 3) will
+        //    catch genuinely stuck issues.
         const designDone = hasDesignComment(issue.number, ctx.env.repo);
         if (!designDone) {
-            this.designAction = { action: 'respawn-design', issueNumber: issue.number };
-            // Auto-revert: issue reached station:design without a DESIGN.md (e.g., manual label flip
-            // or approval flow that skipped the Design agent). Move back to station:spec.
-            guardAutoAdvance(issue.number, ctx.env.repo, 'station:design', 'station:spec', ctx.log, 'DESIGN.md missing — reverting to station:spec for Design agent');
-            return { process: false, reason: 'DESIGN.md not yet posted — reverted to station:spec for Design agent' };
+            return { process: false, reason: 'DESIGN.md not yet posted — waiting for design agent' };
         }
         // 5. Design quality gate — if incomplete, push back to station:spec for re-design
         const qualityCheck = checkDesignQuality(issue.number, ctx.env.repo, ctx.log);

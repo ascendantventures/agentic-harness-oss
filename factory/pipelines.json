@@ -25,14 +25,19 @@
           "nextLabel": "station:build"
         },
         {
-          "stationId": "qa",
+          "stationId": "provision",
           "label": "station:build",
+          "nextLabel": "station:provisioned"
+        },
+        {
+          "stationId": "qa",
+          "label": "station:provisioned",
           "nextLabel": "station:qa"
         },
         {
           "stationId": "bugfix",
           "label": "station:bugfix",
-          "nextLabel": "station:build"
+          "nextLabel": "station:provisioned"
         },
         {
           "stationId": "uat",

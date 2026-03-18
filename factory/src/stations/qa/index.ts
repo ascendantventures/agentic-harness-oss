@@ -100,7 +100,7 @@ export function hasBuildMovedSinceLastQA(
 
 export class QAStation extends BaseStation {
   readonly id = 'qa';
-  readonly label = 'station:build';
+  readonly label = 'station:provisioned';
   readonly nextLabel = 'station:qa';
   readonly model = 'claude-sonnet-4-6';
   readonly concurrency = 3; // Parallel QA safe — each agent tests its own PR/preview
@@ -335,7 +335,7 @@ if [ -n "$BUILD_REPO" ] && [ -n "$BRANCH_NAME" ]; then
   gh pr review "$BRANCH_NAME" --repo "$BUILD_REPO" --approve --body "✅ QA PASS — technical review approved. Forwarding to UAT for user acceptance testing." 2>/dev/null || echo "PR review failed (may need write access)"
 fi
 
-gh issue edit ${issue.number} --repo ${ctx.env.repo} --remove-label "station:qa" --remove-label "station:build" --add-label "station:qa"
+gh issue edit ${issue.number} --repo ${ctx.env.repo} --remove-label "station:qa" --remove-label "station:provisioned" --add-label "station:qa"
 
 curl -s -X PATCH \\
   "${SUPABASE_URL}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
@@ -343,6 +343,17 @@ curl -s -X PATCH \\
   -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \\
   -H "Content-Type: application/json" \\
   -d '{"station":"qa"}'
+
+SUBMISSION_ID=$(curl -s \\
+  "${SUPABASE_URL}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}&select=id" \\
+  -H "apikey: ${SUPABASE_SERVICE_KEY}" \\
+  -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" | jq -r '.[0].id // empty')
+if [ -n "$SUBMISSION_ID" ]; then
+  curl -s -X POST "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+    -H "Content-Type: application/json" \\
+    -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+    -d '{"type":"status_update","content":"QA passed — preparing for delivery.","payload":{"station":"qa","issueNumber":${issue.number}}}' 2>/dev/null || true
+fi
 \`\`\`
 
 ### IF CRITICAL ACs FAIL OR CLIENT_SIDE_FAIL=1:
@@ -361,7 +372,7 @@ gh issue create --repo ${ctx.env.repo} \\
   --label "type:bug" --label "station:intake"
 
 gh issue edit ${issue.number} --repo ${ctx.env.repo} \\
-  --remove-label "station:qa" --remove-label "station:build" --add-label "station:bugfix"
+  --remove-label "station:qa" --remove-label "station:provisioned" --add-label "station:bugfix"
 \`\`\`
 
 **Time limit: 15 minutes total. Stop after 15 min regardless of completion status.**`,

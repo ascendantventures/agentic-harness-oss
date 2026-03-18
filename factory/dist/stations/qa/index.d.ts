@@ -22,7 +22,7 @@ export declare function getLastQAInfo(issueNumber: number, repo: string, log: (m
 export declare function hasBuildMovedSinceLastQA(buildRepo: string | null, lastQAAt: string | undefined, log: (m: string) => void): boolean;
 export declare class QAStation extends BaseStation {
     readonly id = "qa";
-    readonly label = "station:build";
+    readonly label = "station:provisioned";
     readonly nextLabel = "station:qa";
     readonly model = "claude-sonnet-4-6";
     readonly concurrency = 3;

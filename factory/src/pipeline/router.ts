@@ -13,7 +13,7 @@
  * Adding a new pipeline = edit pipelines.json. No code changes here.
  */
 
-import { getIssuesByLabel } from '../github/issues.js';
+import { getIssuesByLabel, extractManifest } from '../github/issues.js';
 import { spawnAgent } from '../agents/spawn.js';
 import { lockKey } from '../core/locks.js';
 import { DEFAULT_MAX_RETRIES } from '../core/backoff.js';
@@ -105,7 +105,7 @@ export class PipelineRouter {
             typeof l === 'string' ? l : l.name,
           ) as string[],
           raw: rawIssue,
-          manifest: null,
+          manifest: extractManifest(rawIssue.body),
           isChangeRequest: (rawIssue.title ?? '').startsWith('[Change]'),
           isInternal: (rawIssue.labels ?? []).some(
             (l: any) => (typeof l === 'string' ? l : l.name) === 'type:internal',
@@ -186,6 +186,28 @@ export class PipelineRouter {
 
         if (!shouldResult.process) {
           ctx.log(`  Skip #${issue.number} [${station.id}]: ${shouldResult.reason ?? 'no reason'}`);
+          continue;
+        }
+
+        // Check if station supports directRun (synchronous execution, no agent spawn)
+        const stationAny = station as any;
+        if (typeof stationAny.directRun === 'function') {
+          ctx.log(`  Running ${station.id.toUpperCase()} directly for #${issue.number}: ${issue.title}`);
+          // Acquire lock before running to prevent double-execution
+          ctx.locks.setLock(key, {
+            issue: issue.number,
+            station: station.id,
+            pid: process.pid,
+            logFile: ctx.env.logFile,
+          });
+          try {
+            await stationAny.directRun(issue, ctx);
+          } catch (e: any) {
+            ctx.log(`  ${station.id.toUpperCase()} directRun threw: ${e.message}`);
+          } finally {
+            ctx.locks.removeLock(key);
+          }
+          spawned++;
           continue;
         }
 

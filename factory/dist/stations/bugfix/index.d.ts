@@ -11,7 +11,7 @@ import { BaseStation, type FactoryContext, type ShouldProcessResult } from '../b
 export declare class BugfixStation extends BaseStation {
     readonly id = "bugfix";
     readonly label = "station:bugfix";
-    readonly nextLabel = "station:build";
+    readonly nextLabel = "station:provisioned";
     readonly model = "claude-sonnet-4-6";
     readonly concurrency = 1;
     readonly ttl = 7200000;

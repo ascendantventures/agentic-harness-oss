@@ -12,7 +12,7 @@
  *
  * Adding a new pipeline = edit pipelines.json. No code changes here.
  */
-import { getIssuesByLabel } from '../github/issues.js';
+import { getIssuesByLabel, extractManifest } from '../github/issues.js';
 import { spawnAgent } from '../agents/spawn.js';
 import { lockKey } from '../core/locks.js';
 import { DEFAULT_MAX_RETRIES } from '../core/backoff.js';
@@ -60,7 +60,7 @@ export class PipelineRouter {
                     ...rawIssue,
                     labels: (rawIssue.labels ?? []).map((l) => typeof l === 'string' ? l : l.name),
                     raw: rawIssue,
-                    manifest: null,
+                    manifest: extractManifest(rawIssue.body),
                     isChangeRequest: (rawIssue.title ?? '').startsWith('[Change]'),
                     isInternal: (rawIssue.labels ?? []).some((l) => (typeof l === 'string' ? l : l.name) === 'type:internal'),
                     isPhase2: (rawIssue.labels ?? []).some((l) => (typeof l === 'string' ? l : l.name) === 'type:phase2'),
@@ -132,6 +132,29 @@ export class PipelineRouter {
                     ctx.log(`  Skip #${issue.number} [${station.id}]: ${shouldResult.reason ?? 'no reason'}`);
                     continue;
                 }
+                // Check if station supports directRun (synchronous execution, no agent spawn)
+                const stationAny = station;
+                if (typeof stationAny.directRun === 'function') {
+                    ctx.log(`  Running ${station.id.toUpperCase()} directly for #${issue.number}: ${issue.title}`);
+                    // Acquire lock before running to prevent double-execution
+                    ctx.locks.setLock(key, {
+                        issue: issue.number,
+                        station: station.id,
+                        pid: process.pid,
+                        logFile: ctx.env.logFile,
+                    });
+                    try {
+                        await stationAny.directRun(issue, ctx);
+                    }
+                    catch (e) {
+                        ctx.log(`  ${station.id.toUpperCase()} directRun threw: ${e.message}`);
+                    }
+                    finally {
+                        ctx.locks.removeLock(key);
+                    }
+                    spawned++;
+                    continue;
+                }
                 // Build the agent task
                 let task;
                 try {
@@ -153,8 +176,10 @@ export class PipelineRouter {
                 ctx.log(`  Spawning ${station.id.toUpperCase()} agent for #${issue.number}: ${issue.title} [model: ${task.model}]`);
                 const handle = spawnAgent(task, ctx.useClaudeCli, ctx.buildAgentEnv, ctx.getCurrentKey, ctx.log);
                 // Flip label at spawn time so the dashboard reflects "in progress"
-                // The agent prompt may also flip the label — that's a harmless no-op.
-                if (stage.nextLabel) {
+                // Only for stations where the output artifact is NOT checked by a guard
+                // (spec/design have guards that revert if artifacts are missing)
+                const noFlipStations = ['spec', 'design', 'build'];
+                if (stage.nextLabel && !noFlipStations.includes(station.id)) {
                     flipLabel(issue.number, ctx.env.repo, stage.label, stage.nextLabel, ctx.log, `spawn-time flip: ${station.id} agent started`);
                 }
                 // Acquire lock

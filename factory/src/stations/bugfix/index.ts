@@ -13,7 +13,7 @@ import { BaseStation, type FactoryContext, type ShouldProcessResult } from '../b
 export class BugfixStation extends BaseStation {
   readonly id = 'bugfix';
   readonly label = 'station:bugfix';
-  readonly nextLabel = 'station:build';
+  readonly nextLabel = 'station:provisioned';
   readonly model = 'claude-sonnet-4-6';
   readonly concurrency = 1;
   readonly ttl = 7200000; // 2 hours
@@ -109,7 +109,7 @@ Live URL: $LIVE_URL
 Ready for re-QA."
 
 gh issue edit ${issue.number} --repo ${ctx.env.repo} \\
-  --remove-label "station:bugfix" --add-label "station:build"
+  --remove-label "station:bugfix" --add-label "station:provisioned"
 \`\`\`
 
 Confirm: BUGFIX complete for #${issue.number}`,
