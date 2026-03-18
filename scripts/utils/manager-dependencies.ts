@@ -130,6 +130,18 @@ export async function authenticateGitHub(): Promise<void> {
   }
 }
 
+export async function ensureAgentBrowser(): Promise<void> {
+  const s = spinner();
+  try {
+    const { stdout } = await execAsync('agent-browser --version 2>/dev/null || npx -y @ahmadmayo/agent-browser --version');
+    // If it worked, we just log completion
+    s.stop(pc.green(`✔ agent-browser verified via ${stdout.includes('npx') ? 'npx' : 'system'}.`));
+  } catch {
+    // If npx fails to even resolve version, we just note that it will be used at runtime.
+    s.stop(pc.blue('ℹ agent-browser will be executed via npx during QA/UAT.'));
+  }
+}
+
 export async function checkAllDependencies(): Promise<{ hasClaude: boolean }> {
   const s = spinner();
   s.start('Checking basic environment (Node.js)...');
@@ -138,6 +150,7 @@ export async function checkAllDependencies(): Promise<{ hasClaude: boolean }> {
   
   const hasClaude = await ensureClaudeCli();
   await ensureGitHubCli();
+  await ensureAgentBrowser();
 
   s.start('Checking GitHub authentication...');
   s.stop('Checking GitHub authentication...'); // Need to stop before prompt in authenticateGitHub might happen
