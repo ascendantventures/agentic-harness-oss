@@ -201,6 +201,17 @@ export class BuildStation extends BaseStation {
 This is a CHANGE REQUEST on an existing live project. Do NOT scaffold from a template.
 Clone the existing build repo and apply the requested changes.
 
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "build"}' || true
+\`\`\`
+
 ## Steps
 
 ### 1. Read the change request spec
@@ -370,6 +381,16 @@ gh issue comment ${issue.number} --repo ${ctx.env.repo} --body "## BUILD COMPLET
 
 _PR will be auto-merged after QA and UAT approval._"
 gh issue edit ${issue.number} --repo ${ctx.env.repo} --remove-label "station:design" --add-label "station:build"
+curl -s -X PATCH \\
+  "${SUPABASE_URL}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${SUPABASE_SERVICE_KEY}" \\
+  -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \\
+  -H "Content-Type: application/json" \\
+  -d \'{"station":"build"}\'
+curl -s -X POST "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d \'{"type":"status_update","content":"Build complete — PR ready for QA review.","payload":{"station":"build","issueNumber":${issue.number}}}\' 2>/dev/null || true
 \`\`\`
 
 ## Critical rules
@@ -399,6 +420,17 @@ gh issue edit ${issue.number} --repo ${ctx.env.repo} --remove-label "station:des
       message: `You are a BUILD agent for the factory pipeline.
 
 This is an INTERNAL feature issue. Do NOT use a template. Clone the main repo, create a feature branch, implement, open a PR.
+
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "build"}' || true
+\`\`\`
 
 ## Steps
 
@@ -461,6 +493,14 @@ Review the PR, then merge to ship to production."
 
 gh issue edit ${issue.number} --repo ${ctx.env.repo} \\
   --remove-label "station:design" --add-label "station:build"
+SUPA_URL="${ctx.env.supabaseUrl}"
+SUPA_KEY="${ctx.env.supabaseKey}"
+curl -s -X PATCH \\
+  "$SUPA_URL/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: $SUPA_KEY" \\
+  -H "Authorization: Bearer $SUPA_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station":"build"}'
 \`\`\`
 
 ## Critical rules
@@ -503,6 +543,17 @@ gh issue edit ${issue.number} --repo ${ctx.env.repo} \\
 Read GitHub issue #${issue.number} from repo ${ctx.env.repo} (with comments).
 The issue has a SPEC comment. Build the full application using the template system.
 
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "build"}' || true
+\`\`\`
+
 ## Template to use
 - Template: \`${template.repo}\`
 - Deploy target: ${template.deployTarget}
@@ -513,6 +564,16 @@ The issue has a SPEC comment. Build the full application using the template syst
 ### 1. Read the spec
 \`\`\`bash
 gh issue view ${issue.number} --repo ${ctx.env.repo} --comments
+\`\`\`
+
+### 1b. Open build monitor card in chat
+\`\`\`bash
+SUBMISSION_ID="${submissionId}"
+BUILD_MONITOR_RESP=$(curl -s -X POST "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d '{"type":"build_monitor","content":"","payload":{"type":"build_monitor","status":"building","station":"build","progress":5,"eta_minutes":8,"elapsed_seconds":0,"activities":[]}}')
+BUILD_MONITOR_ID=$(echo "$BUILD_MONITOR_RESP" | jq -r '.message.message_id // empty')
 \`\`\`
 
 ### 2. Set up build repo (seeded from template)
@@ -575,6 +636,11 @@ Build every feature described in the spec. Follow the DESIGN.md for all visual d
 ### 7. Install deps + TypeScript gate (HARD STOP on errors)
 \`\`\`bash
 npm install
+# Update build monitor: installing deps
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":30,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Dependencies installed\"}]}}" 2>/dev/null || true
 TSC_OUT=$(npx tsc --noEmit --skipLibCheck 2>&1)
 TSC_EXIT=$?
 echo "$TSC_OUT" | head -30
@@ -583,6 +649,11 @@ if [ $TSC_EXIT -ne 0 ]; then
   exit 1
 fi
 echo "TypeScript check passed"
+# Update build monitor: TSC passed
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":55,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Dependencies installed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"TypeScript check passed\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ### 8. Ensure code is in a GitHub repo (MANDATORY)
@@ -729,6 +800,12 @@ PR_NUMBER=$(echo "$PR_URL" | grep -oP '\\d+$')
 
 HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$PREVIEW_URL" --max-time 20)
 echo "Preview HTTP status: $HTTP_STATUS"
+
+# Update build monitor: deployed + PR open
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"building\",\"station\":\"build\",\"progress\":85,\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"Dependencies installed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"TypeScript check passed\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Deployed to Vercel: $PREVIEW_URL\"},{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"info\",\"description\":\"PR opened: $PR_URL\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ### 11. Post BUILD COMPLETE comment + flip label
@@ -743,6 +820,16 @@ gh issue comment ${issue.number} --repo ${ctx.env.repo} --body "## BUILD COMPLET
 
 _PR will be auto-merged after QA and UAT approval._"
 gh issue edit ${issue.number} --repo ${ctx.env.repo} --remove-label "station:design" --add-label "station:build"
+curl -s -X PATCH \\
+  "${SUPABASE_URL}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${SUPABASE_SERVICE_KEY}" \\
+  -H "Authorization: Bearer ${SUPABASE_SERVICE_KEY}" \\
+  -H "Content-Type: application/json" \\
+  -d \'{"station":"build"}\'
+[ -n "$BUILD_MONITOR_ID" ] && curl -s -X PATCH "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
+  -H "Content-Type: application/json" \\
+  -H "x-factory-secret: ${ctx.env.factorySecret}" \\
+  -d "{\"messageId\":\"$BUILD_MONITOR_ID\",\"payload\":{\"type\":\"build_monitor\",\"status\":\"complete\",\"station\":\"build\",\"progress\":100,\"live_url\":\"$PREVIEW_URL\",\"activities\":[{\"ts\":\"$(date -u +%H:%M)\",\"event\":\"success\",\"description\":\"Build complete — PR ready for QA review\"}]}}" 2>/dev/null || true
 \`\`\`
 
 ## Critical rules

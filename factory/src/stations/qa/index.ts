@@ -159,6 +159,17 @@ export class QAStation extends BaseStation {
       message: `You are a QA agent for the factory pipeline.
 **Goal: Review the PR diff + smoke test the preview deploy in under 15 minutes. Fast pass/fail.**
 
+═══ STEP 0: MARK STATION ACTIVE ═══
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "qa"}' || true
+\`\`\`
+
 ═══ STEP 1: GET PR AND PREVIEW URL ═══
 
 \`\`\`bash

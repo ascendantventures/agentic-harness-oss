@@ -78,6 +78,17 @@ Use the attached documents as the PRIMARY requirements source. Only infer or ask
       model: 'haiku',
       message: `You are a SPEC agent for the factory pipeline.
 
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "spec"}' || true
+\`\`\`
+
 ${docFetchSteps}
 
 ## Step ${stepOffset} — Read the GitHub issue
@@ -200,10 +211,27 @@ SUBMISSION_ID=$(curl -s \\
 if [ -n "$SUBMISSION_ID" ]; then
   # Use jq to safely build JSON — shell interpolation breaks on special chars in spec content
   SPEC_SUMMARY=$(head -5 /tmp/spec-issue-${issue.number}.md 2>/dev/null | tr '\\n' ' ')
-  FACTORY_SECRET=$(grep FACTORY_SECRET ~/.bashrc | cut -d= -f2)
+  # Extract Phase 1 features: lines under "## Phase 1" heading that start with a bullet/dash
+  PHASE1_FEATURES=$(python3 -c "
+import sys, json
+lines = open('/tmp/spec-issue-${issue.number}.md').readlines() if __import__('os').path.exists('/tmp/spec-issue-${issue.number}.md') else []
+in_phase1 = False
+features = []
+for line in lines:
+    l = line.strip()
+    if l.lower().startswith('## phase 1') or l.lower().startswith('# phase 1'):
+        in_phase1 = True
+        continue
+    if in_phase1 and l.startswith('##'):
+        break
+    if in_phase1 and (l.startswith('- ') or l.startswith('* ')):
+        features.append(l.lstrip('-* ').strip())
+print(json.dumps(features))
+" 2>/dev/null || echo '[]')
   PUSH_PAYLOAD=$(jq -n \\
     --arg summary "$SPEC_SUMMARY" \\
     --arg sid "$SUBMISSION_ID" \\
+    --argjson features "$PHASE1_FEATURES" \\
     '{
       type: "spec_card",
       content: "Your spec is ready — review and approve to start building.",
@@ -211,7 +239,7 @@ if [ -n "$SUBMISSION_ID" ]; then
         type: "spec_card",
         station: "spec",
         specSummary: $summary,
-        phase1Features: [],
+        phase1Features: $features,
         phase2Features: [],
         prerequisites: [],
         submissionId: $sid,
@@ -220,7 +248,7 @@ if [ -n "$SUBMISSION_ID" ]; then
     }')
   curl -s -X POST "${ctx.env.factoryAppUrl}/api/threads/$SUBMISSION_ID/push" \\
     -H "Content-Type: application/json" \\
-    -H "x-factory-secret: $FACTORY_SECRET" \\
+    -H "x-factory-secret: ${ctx.env.factorySecret}" \\
     -d "$PUSH_PAYLOAD"
   echo "✓ Pushed spec_ready card to thread $SUBMISSION_ID"
 fi

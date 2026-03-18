@@ -41,6 +41,17 @@ export class BugfixStation extends BaseStation {
       model: 'sonnet',
       message: `You are a BUGFIX agent for the factory pipeline.
 
+## Step 0 — Mark station as active (run immediately)
+
+\`\`\`bash
+curl -s -X PATCH \\
+  "${ctx.env.supabaseUrl}/rest/v1/submissions?github_issue_url=ilike.*%2Fissues%2F${issue.number}" \\
+  -H "apikey: ${ctx.env.supabaseKey}" \\
+  -H "Authorization: Bearer ${ctx.env.supabaseKey}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"station": "bugfix"}' || true
+\`\`\`
+
 ## Your Task
 
 Fix the QA failures for issue #${issue.number}.
