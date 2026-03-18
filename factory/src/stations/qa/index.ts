@@ -249,7 +249,7 @@ This is the full regression suite. Any failure = QA FAIL.
 \`\`\`bash
 for route in / /dashboard /api/health; do
   STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "$LIVE_URL$route" 2>/dev/null || echo "ERR")
-  echo "$route → $STATUS"
+  echo "$route" → "$STATUS"
 done
 \`\`\`
 
@@ -261,13 +261,13 @@ Use agent-browser to visually verify the live app against acceptance criteria.
 mkdir -p /tmp/qa-${issue.number}/screenshots
 
 # Open the live app and wait for it to load
-agent-browser open "$LIVE_URL" && agent-browser wait --load networkidle
+npx -y @ahmadmayo/agent-browser open "$LIVE_URL" && npx -y @ahmadmayo/agent-browser wait --load networkidle
 
 # Take desktop screenshot
-agent-browser screenshot /tmp/qa-${issue.number}/screenshots/desktop-home.png
+npx -y @ahmadmayo/agent-browser screenshot /tmp/qa-${issue.number}/screenshots/desktop-home.png
 
 # Check for error states in the page content
-SNAPSHOT=$(agent-browser snapshot -i 2>/dev/null || echo "SNAPSHOT_FAILED")
+SNAPSHOT=$(npx -y @ahmadmayo/agent-browser snapshot -i 2>/dev/null || echo "SNAPSHOT_FAILED")
 echo "$SNAPSHOT"
 
 # Check for critical errors
@@ -282,24 +282,24 @@ else
 fi
 
 # Mobile viewport check
-agent-browser set viewport 375 812
-agent-browser screenshot /tmp/qa-${issue.number}/screenshots/mobile-home.png
-agent-browser set viewport 1280 800
+npx -y @ahmadmayo/agent-browser set viewport 375 812
+npx -y @ahmadmayo/agent-browser screenshot /tmp/qa-${issue.number}/screenshots/mobile-home.png
+npx -y @ahmadmayo/agent-browser set viewport 1280 800
 \`\`\`
 
 Now walk through the key acceptance criteria using agent-browser:
-- Use \`agent-browser snapshot -i\` to discover interactive elements
+- Use \`npx -y @ahmadmayo/agent-browser snapshot -i\` to discover interactive elements
 - Use refs (@e1, @e2, etc.) to click buttons, fill forms, navigate
 - Re-snapshot after each interaction to verify state changes
-- Screenshot evidence for each AC: \`agent-browser screenshot /tmp/qa-${issue.number}/screenshots/ac-<name>.png\`
+- Screenshot evidence for each AC: \`npx -y @ahmadmayo/agent-browser screenshot /tmp/qa-${issue.number}/screenshots/ac-<name>.png\`
 
 \`\`\`bash
 # Example interactive verification (adapt to actual ACs):
-# agent-browser snapshot -i        # Discover elements
-# agent-browser click @e3          # Click a button
-# agent-browser wait --load networkidle
-# agent-browser snapshot -i        # Verify result
-# agent-browser screenshot /tmp/qa-${issue.number}/screenshots/ac-navigation.png
+# npx -y @ahmadmayo/agent-browser snapshot -i        # Discover elements
+# npx -y @ahmadmayo/agent-browser click @e3          # Click a button
+# npx -y @ahmadmayo/agent-browser wait --load networkidle
+# npx -y @ahmadmayo/agent-browser snapshot -i        # Verify result
+# npx -y @ahmadmayo/agent-browser screenshot /tmp/qa-${issue.number}/screenshots/ac-navigation.png
 \`\`\`
 
 ═══ STEP 4c: REGRESSION TEST (if REGRESSION.md exists) ═══
@@ -310,14 +310,14 @@ For each feature section in REGRESSION.md:
 1. Navigate to the listed route
 2. Execute each test step
 3. Verify expected results
-4. Screenshot evidence: \`agent-browser screenshot /tmp/qa-${issue.number}/screenshots/regression-<feature>.png\`
+4. Screenshot evidence: \`npx -y @ahmadmayo/agent-browser screenshot /tmp/qa-${issue.number}/screenshots/regression-<feature>.png\`
 5. Mark as PASS or FAIL
 
 **ANY regression failure = entire QA FAILS.** Existing features MUST keep working.
 
 \`\`\`bash
 # Close browser when done
-agent-browser close
+npx -y @ahmadmayo/agent-browser close
 \`\`\`
 
 ═══ STEP 5: VERDICT ═══

@@ -25,9 +25,13 @@ export async function copyTemplates(): Promise<void> {
   }
 }
 
-export async function getCurrentSettings(): Promise<{ repo: string; key: string }> {
+export async function getCurrentSettings(): Promise<{ repo: string; key: string; vercelToken?: string; supabaseUrl?: string; supabaseKey?: string }> {
   let currentRepo = '';
   let currentKey = '';
+  let vercelToken = '';
+  let supabaseUrl = '';
+  let supabaseKey = '';
+
   try {
     const envContent = await fs.readFile(path.join(REPO_ROOT, '.env'), 'utf8');
     const repoMatch = envContent.match(/^GITHUB_REPO=(.+)$/m);
@@ -35,15 +39,36 @@ export async function getCurrentSettings(): Promise<{ repo: string; key: string 
     
     const oauthMatch = envContent.match(/^CLAUDE_CODE_OAUTH_TOKEN=(.+)$/m);
     const apiMatch = envContent.match(/^ANTHROPIC_API_KEY=(.+)$/m);
-    if (oauthMatch && !oauthMatch[1].includes('your-vercel-token')) currentKey = oauthMatch[1].split('#')[0].trim();
-    else if (apiMatch && !apiMatch[1].includes('your-vercel-token')) currentKey = apiMatch[1].split('#')[0].trim();
+    if (oauthMatch && !oauthMatch[1].includes('your-token')) currentKey = oauthMatch[1].split('#')[0].trim();
+    else if (apiMatch && !apiMatch[1].includes('your-key')) currentKey = apiMatch[1].split('#')[0].trim();
+
+    const vtMatch = envContent.match(/^VERCEL_TOKEN=(.+)$/m);
+    if (vtMatch) vercelToken = vtMatch[1].trim();
+
+    const suMatch = envContent.match(/^SUPABASE_URL=(.+)$/m);
+    if (suMatch) supabaseUrl = suMatch[1].trim();
+
+    const skMatch = envContent.match(/^SUPABASE_SERVICE_ROLE_KEY=(.+)$/m);
+    if (skMatch) supabaseKey = skMatch[1].trim();
   } catch (e) {
     // Ignore errors reading existing config
   }
-  return { repo: currentRepo, key: currentKey };
+  return { 
+    repo: currentRepo, 
+    key: currentKey,
+    vercelToken: vercelToken || undefined,
+    supabaseUrl: supabaseUrl || undefined,
+    supabaseKey: supabaseKey || undefined
+  };
 }
 
-export async function saveConfiguration(repo: string, apiKey: string, hasClaude = false, model?: string): Promise<void> {
+export async function saveConfiguration(
+  repo: string, 
+  apiKey: string, 
+  hasClaude = false, 
+  model?: string,
+  extraEnv?: Record<string, string>
+): Promise<void> {
   const configPath = path.join(REPO_ROOT, 'factory', 'config.json');
   const envPath = path.join(REPO_ROOT, '.env');
 
@@ -81,6 +106,19 @@ export async function saveConfiguration(repo: string, apiKey: string, hasClaude 
     envContent = envContent.replace(/^GITHUB_REPO=.*/m, `GITHUB_REPO=${repo}`);
   } else {
     envContent += `\nGITHUB_REPO=${repo}`;
+  }
+
+  // Handle extra environment variables (Vercel, Supabase, etc.)
+  if (extraEnv) {
+    for (const [key, value] of Object.entries(extraEnv)) {
+      if (value) {
+        if (envContent.match(new RegExp(`^#?\\s*${key}=.*`, 'm'))) {
+          envContent = envContent.replace(new RegExp(`^#?\\s*${key}=.*`, 'm'), `${key}=${value}`);
+        } else {
+          envContent += `\n${key}=${value}`;
+        }
+      }
+    }
   }
 
   // Remove all existing key lines (commented or not) to avoid duplicates

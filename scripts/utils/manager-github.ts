@@ -38,3 +38,12 @@ export async function createExampleIssue(repo: string): Promise<void> {
     sIssue.stop(pc.yellow('⚠ Failed to create example issue (check your gh permissions).'));
   }
 }
+
+export async function verifyRepoExists(repo: string): Promise<boolean> {
+  try {
+    await execAsync(`gh repo view ${repo} --json id`);
+    return true;
+  } catch (e: any) {
+    return false;
+  }
+}
