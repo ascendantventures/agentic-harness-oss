@@ -133,7 +133,9 @@ export abstract class BaseStation {
    */
   protected manifestCheck(issue: Issue, env: FactoryEnv): ShouldProcessResult | null {
     const standaloneMode = !env.supabaseUrl;
-    if (!issue.isInternal && !issue.isChangeRequest && !standaloneMode) {
+    // BUG / UAT Fix / Spec Revision issues don't have a manifest — always let them through
+    const isBugOrFix = /^\[(BUG|UAT Fix|Spec Revision|Fix)\]/i.test(issue.title);
+    if (!issue.isInternal && !issue.isChangeRequest && !isBugOrFix && !standaloneMode) {
       // isValidManifest is computed at enrichment time — manifest non-null means valid
       if (!issue.manifest) {
         return { process: false, reason: `invalid or empty manifest ("${issue.title}")` };
