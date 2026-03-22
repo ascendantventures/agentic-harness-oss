@@ -108,6 +108,23 @@ echo "✅ Vercel build passed — .vercel/output ready"
 If CLAUDE.md exists, append bugs to the "Known Issues & Gotchas" section.
 If REGRESSION.md exists, update any test steps that were incorrect or add new regression test steps for the fixed behavior.
 **Your PR WILL be bounced back if REGRESSION.md is not modified.** This is enforced by an automated artifact gate.
+
+### 5b. Append novel findings to build-patterns.md
+Bugs often reveal systemic patterns. If you discovered a root cause or workaround that future agents should know — append it to the shared patterns file. Specifics only. Skip if nothing new.
+\`\`\`bash
+# Only append if genuinely new — no placeholders
+BUILD_PATTERNS="/root/.openclaw/workspace/shared/findings/build-patterns.md"
+if [ -f "$BUILD_PATTERNS" ]; then
+  cat >> "$BUILD_PATTERNS" << 'FINDINGS_EOF'
+
+## PATTERN [auto — $(date +%Y-%m-%d)] — [Short descriptive title]
+**Context:** Bugfix for #${issue.number} | ${ctx.env.repo}
+**Root cause / finding:** [What caused the bug and how it was fixed]
+**Prevention:** [What to do / avoid in future builds]
+FINDINGS_EOF
+fi
+\`\`\`
+
 \`\`\`bash
 cd /tmp/bugfix-work
 git add -A

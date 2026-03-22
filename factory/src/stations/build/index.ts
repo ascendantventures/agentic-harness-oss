@@ -305,6 +305,25 @@ echo "Vercel build passed — .vercel/output ready"
 If CLAUDE.md exists, update the "Known Issues & Gotchas" and "Change Request Notes" sections with anything you learned during this change. If it doesn't exist, create one (follow the template from new builds).
 **Your PR WILL be bounced back if CLAUDE.md is not modified.** This is enforced by an automated artifact gate.
 
+### 5b. Append novel findings to build-patterns.md
+Review what you built. If you encountered anything future agents should know — library quirk, CDN URL, Vercel/Supabase gotcha, CSS pattern, TypeScript trick — append it to the shared patterns file. Specifics only. Skip if nothing new.
+\`\`\`bash
+BUILD_PATTERNS="/root/.openclaw/workspace/shared/findings/build-patterns.md"
+if [ -f "$BUILD_PATTERNS" ]; then
+  # Only append if genuinely new — do NOT write placeholder entries
+  cat >> "$BUILD_PATTERNS" << 'FINDINGS_EOF'
+
+## PATTERN [auto — $(date +%Y-%m-%d)] — [Short descriptive title]
+**Repo:** ${buildRepo} | **Issue:** #${issue.number}
+**Finding:** [What you discovered]
+**Example:**
+\`\`\`
+[Code or config snippet if applicable]
+\`\`\`
+FINDINGS_EOF
+fi
+\`\`\`
+
 ### 6. Update REGRESSION.md (⛔ REQUIRED — pipeline will reject your PR without this)
 \`\`\`bash
 cd /tmp/build-work
@@ -761,6 +780,25 @@ CLAUDE_EOF
 \`\`\`
 
 **IMPORTANT:** Replace all placeholders with actual values from your build. Be specific and detailed — this file is the project's memory.
+
+### 9b. Append novel findings to build-patterns.md
+Review what you built. If you encountered anything future agents should know — library quirk, CDN URL, Vercel/Supabase gotcha, CSS pattern, TypeScript trick, auth gotcha — append it. Specifics only. Skip if nothing new.
+\`\`\`bash
+BUILD_PATTERNS="/root/.openclaw/workspace/shared/findings/build-patterns.md"
+if [ -f "$BUILD_PATTERNS" ]; then
+  # Only append if genuinely new — do NOT write placeholder entries
+  cat >> "$BUILD_PATTERNS" << 'FINDINGS_EOF'
+
+## PATTERN [auto — $(date +%Y-%m-%d)] — [Short descriptive title]
+**Repo:** $BUILD_REPO | **Issue:** #${issue.number}
+**Finding:** [What you discovered]
+**Example:**
+\`\`\`
+[Code or config snippet if applicable]
+\`\`\`
+FINDINGS_EOF
+fi
+\`\`\`
 
 ### 10. Update REGRESSION.md (⛔ REQUIRED — pipeline will reject your PR without this)
 
