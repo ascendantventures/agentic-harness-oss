@@ -127,3 +127,22 @@ See `projects/sirena/overview.md` in the vault as a reference template.
 ## [Add project-specific rules below]
 
 <!-- Stack, design system, key files, messaging rules, etc. -->
+
+---
+
+## Testing Rules
+
+Full standard: engineering/testing-strategy-sop in Obsidian vault.
+
+- New core logic -> unit test required (auth, billing, state machines - no exceptions)
+- New webhook/API route -> integration test or explicit TODO with linked issue
+- Before launch -> UAT milestone must be closed (or deferred with written rationale)
+- CI must run tests on every PR - failing tests block merge
+
+Identifying highest-risk modules: ask "if this is wrong, what breaks?"
+- Wrong money charged -> billing/Stripe handlers
+- User cant access data -> auth/RLS/permissions
+- Core feature silently fails -> state machine / pipeline
+- Data loss or corruption -> DB write paths
+
+These get unit tests before anything else ships.
