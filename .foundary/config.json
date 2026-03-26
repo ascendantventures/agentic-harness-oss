@@ -1,0 +1,20 @@
+{
+  "name": "default",
+  "description": "Standard SDLC governance — balanced enforcement for general development",
+  "stations": ["01-plan", "02-implement", "03-verify", "04-review", "05-deploy"],
+  "stationTimeout": 300,
+  "gates": {
+    "maxFilesChanged": 20,
+    "minTestCoverage": 0,
+    "requireHumanReview": false,
+    "enableAIReview": false,
+    "protectedPatterns": [
+      ".github/workflows",
+      "Dockerfile",
+      "docker-compose",
+      ".env",
+      "deploy/",
+      ".foundary/"
+    ]
+  }
+}
