@@ -20,3 +20,8 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+# Foundary audit logs (local only)
+.foundary/audit/
+.foundary/context-*.json
+.foundary/state-*.json
