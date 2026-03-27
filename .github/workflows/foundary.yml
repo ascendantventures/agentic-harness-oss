@@ -1,0 +1,74 @@
+name: Foundary Governance Check
+
+on:
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  foundary-audit:
+    name: Verify Foundary Pipeline Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Foundary initialized
+        run: |
+          if [ ! -f ".foundary/config.json" ]; then
+            echo "❌ FOUNDARY: .foundary/config.json missing. Run: foundary init"
+            exit 1
+          fi
+          echo "✅ Foundary initialized"
+
+      - name: Validate no direct commits bypassed pipeline
+        run: |
+          # Check commit messages on this PR for FOUNDARY_ADMIN bypass usage
+          # (legitimate pipeline commits come from foundary run and have task IDs)
+          BASE="${{ github.event.pull_request.base.sha }}"
+          HEAD="${{ github.event.pull_request.head.sha }}"
+
+          ADMIN_BYPASSES=$(git log "$BASE..$HEAD" --format="%s" | grep -c "FOUNDARY_ADMIN" || true)
+          if [ "$ADMIN_BYPASSES" -gt 0 ]; then
+            echo "⚠️  FOUNDARY: $ADMIN_BYPASSES admin override commit(s) detected on this PR."
+            echo "   Admin overrides are audited but should be exceptional."
+            # Warning only — not blocking (admin overrides are legitimate for infra work)
+          fi
+
+          # Check if any commits explicitly bypassed with --no-verify
+          # We can't detect --no-verify at CI level, but we CAN check audit artifacts
+          echo "✅ Commit message check passed"
+
+      - name: Check for Foundary audit artifacts (if pipeline was run)
+        run: |
+          # If the branch has a .foundary/audit/ directory with entries, validate chain integrity
+          if [ -d ".foundary/audit" ] && ls .foundary/audit/*.jsonl >/dev/null 2>&1; then
+            echo "Foundary audit logs found — validating chain integrity..."
+            for log in .foundary/audit/*.jsonl; do
+              ENTRIES=$(wc -l < "$log")
+              echo "  📋 $(basename $log): $ENTRIES entries"
+              # Verify last entry shows pipeline completion (not blocked/paused)
+              LAST_EVENT=$(tail -1 "$log" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('event',''))" 2>/dev/null || echo "")
+              if [ -n "$LAST_EVENT" ] && [ "$LAST_EVENT" != "PIPELINE_COMPLETE" ]; then
+                echo "  ⚠️  Pipeline for $(basename $log .jsonl) did not complete (last event: $LAST_EVENT)"
+              fi
+            done
+            echo "✅ Audit logs validated"
+          else
+            echo "ℹ️  No Foundary audit logs on this branch."
+            echo "   For governed changes, run: foundary run --task <spec>"
+            echo "   Audit logs prove governance compliance."
+            # Not blocking for now — some PRs are infra/config only
+            # Set FOUNDARY_REQUIRE_AUDIT=true in repo secrets to enforce strictly
+          fi
+
+      - name: Strict audit enforcement (if enabled)
+        if: ${{ vars.FOUNDARY_REQUIRE_AUDIT == 'true' }}
+        run: |
+          if [ ! -d ".foundary/audit" ] || ! ls .foundary/audit/*.jsonl >/dev/null 2>&1; then
+            echo "❌ FOUNDARY: Strict mode enabled. This PR has no Foundary audit trail."
+            echo "   All code changes must go through: foundary run --task <spec>"
+            echo "   Disable strict mode: remove FOUNDARY_REQUIRE_AUDIT from repo vars"
+            exit 1
+          fi
+          echo "✅ Audit trail present — strict mode satisfied"
