@@ -1,5 +1,19 @@
 # AGENTS.md — agentic-harness-oss
 
+## ⚠️ BEFORE ANY CODE CHANGE — MANDATORY
+
+Read `.foundary/SKILL.md`. Then run:
+
+```bash
+foundary run --task '{"description": "...", "taskId": "issue-N", "allowedFiles": ["src/**"]}'
+```
+
+**NO direct `git commit`. NO exceptions.** The pre-commit hook will hard-block you. If you committed outside Foundary, stop and redo it through the pipeline.
+
+Emergency human override only: `FOUNDARY_ADMIN=1 git commit` (logged to audit trail).
+
+
+
 Read `CLAUDE.md` first — it contains the full project spec, stack, and architecture.
 
 ---
