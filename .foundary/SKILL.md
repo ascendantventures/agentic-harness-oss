@@ -8,6 +8,46 @@ Foundary is a deterministic governance layer for your development workflow. It w
 
 Use Foundary for **any coding task** — implementing features, fixing bugs, refactoring. Run the pipeline at the start and let it guide you through governed stations.
 
+## Mandatory Tool Requirements (Enforced by Gates)
+
+These are not suggestions — the pipeline gates will BLOCK if artifacts are missing.
+
+### Station 01: Superpowers plan required
+Before running the pipeline, write a plan:
+```bash
+# In your Claude Code session, invoke the writing-plans skill
+# Save output to .superpowers/plans/<task-name>.md
+```
+The gate checks for a valid `.superpowers/plans/*.md` file (>200 chars, recent).
+Skip for infra/config-only tasks: set `skipSuperpowers: true` in task spec or `FOUNDARY_SKIP_SUPERPOWERS=1`.
+
+### Station 02: Context7 required for framework imports
+If your code imports Next.js, Supabase, Tailwind, Framer Motion, Anthropic SDK, or Vercel:
+1. Use Context7 MCP to fetch live docs: `use context7` in your prompt
+2. Create the artifact: `.context7-session.json` in the project root
+3. The gate validates the file exists and is <24h old
+
+Create the artifact manually when Context7 runs (or via the Context7 wrapper):
+```bash
+echo '{"fetchedAt":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","libs":["next","supabase"]}' > .context7-session.json
+```
+Skip: `FOUNDARY_SKIP_CONTEXT7=1`
+
+### Station 02: ui-ux-pro-max required for UI changes
+If your diff touches UI files, also invoke the `ui-ux-pro-max` skill and save output to `.uiux-pro-max-review.md`.
+Skip: `FOUNDARY_SKIP_UIUX=1`
+
+### Station 02: Impeccable required for UI changes
+If your diff touches `.tsx`, `.jsx`, `.css`, `app/`, `components/`, or `pages/`:
+1. Run Impeccable audit skill: `audit` in Claude Code
+2. Run Impeccable polish skill: `polish` in Claude Code
+3. Save output to `.impeccable-audit.md` in project root
+
+The artifact must exist and be <24h old.
+Skip: `FOUNDARY_SKIP_IMPECCABLE=1`
+
+---
+
 ## Quick Start
 
 ```bash
@@ -69,6 +109,52 @@ PLAN → IMPLEMENT → VERIFY → REVIEW → DEPLOY
 - **Tests must pass** — failing tests don't advance past verify
 - **No debug code in production** — console.log, debugger, etc. blocked at review
 - **Tamper-evident audit** — every gate decision is hash-chained and logged
+
+
+## Team Mode (--team)
+
+For complex tasks that benefit from parallel agent work, use `--team` to spawn a Claude Code Agent Team governed by Foundary:
+
+```bash
+foundary run --task '{"description": "Add rate limiting to API", "taskId": "issue-42"}' --team
+```
+
+### How It Works
+
+1. **Setup** — Foundary writes `.claude/settings.json` with hooks wired to gate scripts
+2. **Team lead spawns agents** — A Planner and a Builder work in parallel
+3. **Gates fire automatically** — When a task is marked complete, the `TaskCompleted` hook runs the matching Foundary station gate
+4. **Blocked = task not done** — Exit 2 from the gate sends feedback to the teammate to fix before completion
+5. **Deterministic tail** — After the team finishes 01-plan and 02-implement, stations 03-verify, 04-review, 05-deploy run normally
+
+### Hook Architecture
+
+| Hook | Purpose |
+|------|---------|
+| `TaskCompleted` | Maps task title → station, runs gate script. Blocks on exit 2. |
+| `TeammateIdle` | Logs idle events to `.foundary/audit/<taskId>.jsonl` |
+| `PreToolUse` | Blocks dangerous bash (push to main, rm -rf on critical paths) |
+
+### Task Title → Station Mapping
+
+| Task title contains | Station |
+|---------------------|---------|
+| "plan" | `01-plan` |
+| "implement" or "build" | `02-implement` |
+| "verify" or "test" | `03-verify` |
+| "review" | `04-review` |
+
+### Team Structure
+
+The team lead receives a prompt directing it to:
+1. Spawn a **Planner** to write `.superpowers/plans/<taskId>.md`
+2. Spawn a **Builder** to implement (reads `.foundary/scope-constraint.md`, creates tool artifacts)
+3. Gate scripts enforce all the same requirements as normal pipeline mode
+
+### When to Use Team Mode vs Dispatch Mode
+
+- **`--team`** — Multi-agent parallel work with task-level gating. Best for large features.
+- **`--dispatch`** — Single-agent sequential stations. Best for focused tasks.
 
 ## If Something Goes Wrong
 
