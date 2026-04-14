@@ -204,9 +204,9 @@ fi
 ═══ STEP 3: FIRST IMPRESSIONS (30 seconds) ═══
 
 \`\`\`bash
-agent-browser open "$LIVE_URL" && agent-browser wait --load networkidle
-agent-browser screenshot /tmp/uat-${issue.number}/first-impression.png
-agent-browser snapshot -i
+npx -y @ahmadmayo/agent-browser open "$LIVE_URL" && npx -y @ahmadmayo/agent-browser wait --load networkidle
+npx -y @ahmadmayo/agent-browser screenshot /tmp/uat-${issue.number}/first-impression.png
+npx -y @ahmadmayo/agent-browser snapshot -i
 \`\`\`
 
 Record your first impressions:
@@ -220,16 +220,16 @@ Record your first impressions:
 If there's a login page:
 \`\`\`bash
 # Look for login form elements
-agent-browser snapshot -i
+npx -y @ahmadmayo/agent-browser snapshot -i
 
 # Fill credentials (use the admin test account)
 # Find the email input and password input refs from snapshot
-# agent-browser type @emailRef "ajrrac@gmail.com"
-# agent-browser type @passRef "AvOps2026!!"
-# agent-browser click @submitRef
-# agent-browser wait --load networkidle
-agent-browser screenshot /tmp/uat-${issue.number}/post-login.png
-agent-browser snapshot -i
+# npx -y @ahmadmayo/agent-browser type @emailRef "ajrrac@gmail.com"
+# npx -y @ahmadmayo/agent-browser type @passRef "AvOps2026!!"
+# npx -y @ahmadmayo/agent-browser click @submitRef
+# npx -y @ahmadmayo/agent-browser wait --load networkidle
+npx -y @ahmadmayo/agent-browser screenshot /tmp/uat-${issue.number}/post-login.png
+npx -y @ahmadmayo/agent-browser snapshot -i
 \`\`\`
 
 Note: If login fails, that's a CRITICAL failure. Document the exact behavior.
@@ -240,14 +240,14 @@ For EACH user flow from the spec:
 
 1. **Navigate** to the relevant page
    \`\`\`bash
-   agent-browser snapshot -i  # discover navigation elements
+   npx -y @ahmadmayo/agent-browser snapshot -i  # discover navigation elements
    # click nav items, links, buttons to reach the feature
-   agent-browser screenshot /tmp/uat-${issue.number}/flow-<name>-start.png
+   npx -y @ahmadmayo/agent-browser screenshot /tmp/uat-${issue.number}/flow-<name>-start.png
    \`\`\`
 
 2. **Attempt the flow** as a non-technical user would
    - Click buttons, fill forms, interact with components
-   - Use \`agent-browser snapshot -i\` after each action to see the result
+   - Use \`npx -y @ahmadmayo/agent-browser snapshot -i\` after each action to see the result
    - Screenshot each step
 
 3. **Evaluate each flow** on these criteria:
@@ -260,10 +260,10 @@ For EACH user flow from the spec:
 
 4. **Check responsive** (mobile viewport)
    \`\`\`bash
-   agent-browser set viewport 375 812
-   agent-browser screenshot /tmp/uat-${issue.number}/flow-<name>-mobile.png
-   agent-browser snapshot -i
-   agent-browser set viewport 1280 800
+   npx -y @ahmadmayo/agent-browser set viewport 375 812
+   npx -y @ahmadmayo/agent-browser screenshot /tmp/uat-${issue.number}/flow-<name>-mobile.png
+   npx -y @ahmadmayo/agent-browser snapshot -i
+   npx -y @ahmadmayo/agent-browser set viewport 1280 800
    \`\`\`
 
 ═══ STEP 5b: REGRESSION WALKTHROUGH (if REGRESSION.md exists) ═══
@@ -274,7 +274,7 @@ For each feature section:
 1. Navigate to the listed route/page
 2. Try each test step as a non-technical user
 3. Evaluate: Does it work? Is it intuitive? Does it look right?
-4. Screenshot: \`agent-browser screenshot /tmp/uat-${issue.number}/regression-<feature>.png\`
+4. Screenshot: \`npx -y @ahmadmayo/agent-browser screenshot /tmp/uat-${issue.number}/regression-<feature>.png\`
 5. Note any broken or confusing behavior
 
 **This is the full regression suite.** Every feature listed must still work.
@@ -284,7 +284,7 @@ If an existing feature is broken by the new changes, UAT FAILS.
 
 \`\`\`bash
 # Check all main navigation links work
-agent-browser snapshot -i
+npx -y @ahmadmayo/agent-browser snapshot -i
 # Click each nav item, verify it loads, screenshot
 # Check for 404s, blank pages, error states
 
@@ -298,12 +298,11 @@ agent-browser snapshot -i
 ═══ STEP 7: CLOSE BROWSER ═══
 
 \`\`\`bash
-agent-browser close
+npx -y @ahmadmayo/agent-browser close
 \`\`\`
 
 ═══ STEP 8: WRITE UAT REPORT ═══
 
-Categorize your findings:
 
 **Rating scale:**
 - 🟢 **PASS** — Flow works as expected, user experience is good

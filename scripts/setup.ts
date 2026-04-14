@@ -1,11 +1,12 @@
-import { intro, outro, text, select, confirm, spinner, isCancel, cancel, note } from '@clack/prompts';
+import { intro, outro, text, select, confirm, spinner, isCancel, cancel, note, group } from '@clack/prompts';
 import pc from 'picocolors';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkAllDependencies } from './utils/manager-dependencies.js';
 import { copyTemplates, getCurrentSettings, saveConfiguration, wipeConfiguration } from './utils/manager-config.js';
-import { setupGithubLabels, createExampleIssue } from './utils/manager-github.js';
+import { setupGithubLabels, createExampleIssue, verifyRepoExists } from './utils/manager-github.js';
+import { verifyApiKey } from './utils/manager-anthropic.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -14,20 +15,24 @@ const REPO_ROOT = path.resolve(__dirname, '..');
 async function main() {
   console.clear();
   
-  intro(`
-  ${pc.bgCyan(pc.black(' 🏭 agentic-harness installer '))}
-  ${pc.dim('The autonomous software factory.')}
+  intro(`${pc.bgBlack(pc.cyan(' agentic-harness 🏭 '))}`);
   
-  ${pc.cyan(pc.bold('SPEC'))} ${pc.dim('→')} ${pc.blue(pc.bold('DESIGN'))} ${pc.dim('→')} ${pc.magenta(pc.bold('BUILD'))} ${pc.dim('→')} ${pc.yellow(pc.bold('QA'))} ${pc.dim('→')} ${pc.green(pc.bold('DONE'))}
-  `);
+  note(
+    `${pc.cyan(pc.bold('SPEC'))} ${pc.dim('→')} ${pc.blue(pc.bold('DESIGN'))} ${pc.dim('→')} ${pc.magenta(pc.bold('BUILD'))} ${pc.dim('→')} ${pc.yellow(pc.bold('QA'))} ${pc.dim('→')} ${pc.green(pc.bold('DONE'))}\n\n` +
+    `${pc.dim('Configure your autonomous software factory in seconds.')}`,
+    'Welcome to the future of shipping.'
+  );
 
   const isReset = process.argv.includes('--reset');
 
   if (isReset) {
+    const sReset = spinner();
+    sReset.start('Wiping previous configuration...');
     await wipeConfiguration();
-    note('Previous configuration wiped safely.', '🧹 Factory Reset Triggered');
+    sReset.stop(pc.green('✔ Factory Reset complete. Previous configs moved to .bak'));
   }
 
+  // 1. Dependency Check
   let hasClaude = false;
   try {
     const deps = await checkAllDependencies();
@@ -38,128 +43,184 @@ async function main() {
   }
 
   await copyTemplates();
+  const current = await getCurrentSettings();
 
-  const { repo: currentRepo, key: currentKey } = await getCurrentSettings();
-
-  const isDummyRepo = currentRepo === 'owner/your-repo' || currentRepo === 'owner/repo';
-  const isDummyKey = currentKey.includes('...');
-
-  if (currentRepo && !isDummyRepo && currentKey && currentKey.startsWith('sk-ant') && !isDummyKey) {
-    const shouldOverwrite = await confirm({
-      message: `It looks like agentic-harness is already configured for ${pc.cyan(currentRepo)}.\n  Do you want to overwrite the current configuration?`,
+  // 2. Identity & Environment Group
+  const project = await group({
+    repo: () => text({
+      message: `Where should the agents work? ${pc.dim('(GitHub Repository)')}`,
+      placeholder: 'owner/repo',
+      initialValue: current.repo && !current.repo.includes('your-repo') ? current.repo : undefined,
+      validate(value) {
+        if (!value) return 'A repository is required.';
+        if (!value.includes('/')) return 'Format: owner/repo';
+      },
+    }),
+    apiKey: () => text({
+      message: `Anthropic API Key: ${pc.dim('(Claude\'s brain power)')}`,
+      placeholder: 'sk-ant-...',
+      initialValue: current.key && current.key.startsWith('sk-ant') ? current.key : undefined,
+      validate(value) {
+        if (!value) return 'Claude needs an API key to think!';
+      },
+    }),
+    configureSaaS: () => confirm({
+      message: `Configure SaaS environment variables? ${pc.dim('(Vercel, Supabase)')}`,
       initialValue: false,
+    }),
+  }, {
+    onCancel: () => { cancel('Setup aborted.'); process.exit(0); }
+  });
+
+  // Verify repo access
+  const sVerify = spinner();
+  sVerify.start(`Verifying access to ${pc.cyan(project.repo)}...`);
+  const exists = await verifyRepoExists(project.repo);
+  if (!exists) {
+    sVerify.stop(pc.red('✖ Repository not found or no access.'));
+    const proceed = await confirm({ message: 'Continue anyway?', initialValue: false });
+    if (!proceed || isCancel(proceed)) { cancel('Setup aborted.'); process.exit(1); }
+  } else {
+    sVerify.stop(pc.green(`✔ Verified access to ${project.repo}.`));
+  }
+
+  // Verify API Key
+  let validKey = false;
+  let currentKey = project.apiKey;
+
+  while (!validKey) {
+    const isOk = await verifyApiKey(currentKey);
+    if (isOk) {
+      validKey = true;
+      project.apiKey = currentKey; 
+    } else {
+      const action = await select({
+        message: pc.red('Anthropic API key validation failed.'),
+        options: [
+          { value: 'retry', label: '🔄 Try a different key', hint: 'Update the sk-ant-... token' },
+          { value: 'bypass', label: '⏩ Skip validation', hint: 'Continue with current key (may fail during run)' },
+          { value: 'cancel', label: '🚪 Abort setup', hint: 'Exit installation' },
+        ],
+      });
+
+      if (isCancel(action) || action === 'cancel') { cancel('Setup aborted.'); process.exit(0); }
+      if (action === 'bypass') break;
+
+      const newKey = await text({
+        message: 'Enter your Anthropic API Key:',
+        placeholder: 'sk-ant-...',
+        initialValue: currentKey.startsWith('sk-ant') ? currentKey : undefined,
+        validate(val) { 
+          if (!val) return 'Key is required.';
+          if (!val.startsWith('sk-ant')) return 'Key must start with sk-ant';
+        }
+      });
+
+      if (isCancel(newKey)) { cancel('Setup aborted.'); process.exit(0); }
+      currentKey = newKey;
+    }
+  }
+
+  // SaaS Sub-group
+  const saas: Record<string, string> = {};
+  if (project.configureSaaS) {
+    const saasRes = await group({
+      vercelToken: () => text({
+        message: 'Vercel API Token:',
+        placeholder: 'Optional',
+        initialValue: current.vercelToken
+      }),
+      supabaseUrl: () => text({
+        message: 'Supabase URL:',
+        placeholder: 'https://xxx.supabase.co',
+        initialValue: current.supabaseUrl
+      }),
+      supabaseKey: () => text({
+        message: 'Supabase Service Role Key:',
+        placeholder: 'ey...',
+        initialValue: current.supabaseKey
+      }),
+    }, {
+      onCancel: () => { cancel('Setup aborted.'); process.exit(0); }
+    });
+    if (saasRes.vercelToken) saas['VERCEL_TOKEN'] = saasRes.vercelToken;
+    if (saasRes.supabaseUrl) saas['SUPABASE_URL'] = saasRes.supabaseUrl;
+    if (saasRes.supabaseKey) saas['SUPABASE_SERVICE_ROLE_KEY'] = saasRes.supabaseKey;
+  }
+
+  // 3. AI Brain Group
+  const brain = await group({
+    model: () => select({
+      message: 'Choose Claude Intelligence Profile:',
+      options: [
+        { value: 'claude-3-5-sonnet-latest', label: 'Balanced (Standard)', hint: 'Sonnet 3.5: Best value & speed' },
+        { value: 'claude-3-opus-latest', label: 'Maximum Quality', hint: 'Opus 3: Best for complex logic' },
+        { value: 'claude-3-5-haiku-latest', label: 'High Performance', hint: 'Haiku 3.5: Ultra fast & cheap' },
+      ],
+    }),
+    setupLabels: () => confirm({
+      message: 'Initialize GitHub labels automatically?',
+      initialValue: true,
+    }),
+  }, {
+    onCancel: () => { cancel('Setup aborted.'); process.exit(0); }
+  });
+
+  // 4. Persistence
+  const sSave = spinner();
+  sSave.start('Committing configuration to disk...');
+  await saveConfiguration(project.repo, project.apiKey, hasClaude, brain.model, saas);
+  sSave.stop(pc.green('✔ Configuration saved to .env and factory/config.json'));
+
+  if (brain.setupLabels) {
+    await setupGithubLabels(project.repo);
+  }
+
+  // 5. Post-Setup Menu (Dashboard)
+  let exitMenu = false;
+  while (!exitMenu) {
+    console.clear();
+    intro(pc.green('✨ agentic-harness is ready!'));
+    
+    const action = await select({
+      message: 'What would you like to do next?',
+      options: [
+        { value: 'start', label: '🚀 Start Factory Loop', hint: 'Runs npm run dev' },
+        { value: 'issue', label: '📝 Create Example Issue', hint: 'Queues a Todo App build' },
+        { value: 'config', label: '🔍 Inspect Configuration', hint: 'View your saved settings' },
+        { value: 'exit', label: '🚪 Exit', hint: 'Finish setup' },
+      ],
     });
 
-    if (isCancel(shouldOverwrite)) {
-      cancel('Operation cancelled. Let\'s build later!');
+    if (isCancel(action) || action === 'exit') {
+      exitMenu = true;
+      outro(pc.cyan('Happy building! 🏭'));
       process.exit(0);
     }
-    
-    if (!shouldOverwrite) {
-      outro(pc.green('✔ Configuration left unchanged. You are good to go! 🚀'));
-      process.exit(0);
+
+    if (action === 'start') {
+      outro(pc.green('Spawning the factory... 🚀'));
+      const child = spawn('npm', ['run', 'dev'], { stdio: 'inherit', cwd: REPO_ROOT });
+      child.on('close', (code) => process.exit(code || 0));
+      return;
+    }
+
+    if (action === 'issue') {
+      await createExampleIssue(project.repo);
+      await new Promise(r => setTimeout(r, 2000)); // Pause for readability
+    }
+
+    if (action === 'config') {
+      note(
+        `${pc.bold('Repo:')} ${project.repo}\n` +
+        `${pc.bold('Model:')} ${brain.model}\n` +
+        `${pc.bold('API Key:')} ${project.apiKey.slice(0, 10)}... (Masked)\n` +
+        (project.configureSaaS ? `${pc.bold('SaaS:')} Configured` : `${pc.bold('SaaS:')} Not Configured`),
+        'Current Settings'
+      );
+      await confirm({ message: 'Press Enter to return to menu', initialValue: true });
     }
   }
-
-  const repo = await text({
-    message: `Where should the agents work? ${pc.dim('(GitHub Repository)')}`,
-    placeholder: 'owner/repo',
-    initialValue: currentRepo && !isDummyRepo ? currentRepo : undefined,
-    validate(value) {
-      if (!value || value.length === 0) return 'Hmm, I really need a repository to work in.';
-      if (!value.includes('/')) return 'Format should be: owner/repo (e.g. danywalls/my-app)';
-    },
-  });
-
-  if (isCancel(repo)) {
-    cancel('Operation cancelled.');
-    process.exit(0);
-  }
-
-  const apiKey = await text({
-    message: `What is your Anthropic API Key? ${pc.dim('(Required for Claude)')}`,
-    placeholder: 'sk-ant-...',
-    initialValue: currentKey && currentKey.startsWith('sk-ant') && !isDummyKey ? currentKey : undefined,
-    validate(value) {
-      if (!value || value.length === 0) return 'Claude needs an API key to think!';
-    },
-  });
-
-  if (isCancel(apiKey)) {
-    cancel('Operation cancelled.');
-    process.exit(0);
-  }
-
-  const model = await select({
-    message: `Which Claude model should the factory use?`,
-    options: [
-      { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4', hint: 'recommended: balanced power & speed' },
-      { value: 'claude-haiku-4-5', label: 'Claude Haiku 4', hint: 'lowest latency & cost' },
-      { value: 'claude-opus-4-5', label: 'Claude Opus 4', hint: 'highest quality' },
-    ],
-  });
-
-  if (isCancel(model)) {
-    cancel('Operation cancelled.');
-    process.exit(0);
-  }
-
-  const setupLabels = await confirm({
-    message: `Should I create the required issue labels via ${pc.bold('gh')} in your repo automatically?`,
-    initialValue: true,
-  });
-
-  if (isCancel(setupLabels)) {
-    cancel('Operation cancelled.');
-    process.exit(0);
-  }
-
-  const sFiles = spinner();
-  sFiles.start('Writing configuration files...');
-  await saveConfiguration(repo as string, apiKey as string, hasClaude, model as string);
-  sFiles.stop(pc.green('✔ Configuration files written.'));
-
-  if (setupLabels) {
-    await setupGithubLabels(repo as string);
-  }
-
-  const testIssue = await confirm({
-    message: `Do you want to queue your first agent task now? ${pc.dim('(Creates a "Todo App" issue)')}`,
-    initialValue: true,
-  });
-
-  if (testIssue && !isCancel(testIssue)) {
-    await createExampleIssue(repo as string);
-  }
-
-  const startNow = await confirm({
-    message: `Do you want to start the factory loop now? ${pc.dim(`(Runs ${pc.cyan('npm run dev')})`)}`,
-    initialValue: true,
-  });
-
-  note(
-    `${pc.cyan('1.')} Your keys have been securely saved to ${pc.cyan('.env')}\n` +
-    `${pc.cyan('2.')} Your harness settings are in ${pc.cyan('factory/config.json')}\n` +
-    `${pc.cyan('3.')} To deploy from scratch anytime, run: ${pc.cyan(pc.bold('npm run dev'))}`,
-    '✨ You are ready to go!'
-  );
-
-  if (startNow && !isCancel(startNow)) {
-    outro(pc.green('Starting the factory loop... 🚀'));
-    
-    const child = spawn('npm', ['run', 'dev'], {
-      stdio: 'inherit',
-      cwd: REPO_ROOT
-    });
-
-    child.on('close', (code) => {
-      process.exit(code || 0);
-    });
-
-    return; // Prevent reaching the second outro
-  }
-
-  outro(pc.green('✔ agentic-harness is ready! Happy building! 🏭'));
 }
 
 main().catch(console.error);
