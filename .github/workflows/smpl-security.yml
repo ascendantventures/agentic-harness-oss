@@ -1,0 +1,21 @@
+name: SMPL Security Scan
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'
+
+permissions:
+  contents: read
+  pull-requests: write
+  security-events: read
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pdelacruzatl/smpl-security-action@v1
+        with:
+          fail-on-critical: 'false'
